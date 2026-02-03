@@ -19,17 +19,17 @@ Mark completed tasks by changing `[ ]` to `[x]`.
 ---
 
 ## Task 2: Dev Database Setup (Docker)
-- [ ] **Done**
+- [x] **Done**
 
 **Description:**
 Налаштувати локальне dev-оточення для бази даних через Docker. Створити `docker-compose.dev.yml` з PostgreSQL 15 та pgAdmin (опціонально). Додати скрипт `scripts/dev-db.sh` (або `.ps1` для Windows) для швидкого запуску/зупинки dev БД. Оновити `.env.example` з коментарями для dev-налаштувань.
 
 **Acceptance Criteria:**
-- [ ] TC-2.1: `docker-compose -f docker-compose.dev.yml up -d` запускає PostgreSQL контейнер на порту 5432.
-- [ ] TC-2.2: БД автоматично створюється з назвою `smart_goblin`, користувачем `goblin` та паролем з `.env`.
-- [ ] TC-2.3: Volume `pgdata-dev` зберігає дані між перезапусками контейнера.
-- [ ] TC-2.4: Скрипт `scripts/dev-db.ps1 start|stop|reset` керує dev БД (reset видаляє volume і створює чисту БД).
-- [ ] TC-2.5: Підключення до БД працює з `DATABASE_URL` з `.env.example` без змін.
+- [x] TC-2.1: `docker-compose -f docker-compose.dev.yml up -d` запускає PostgreSQL контейнер на порту 5432.
+- [x] TC-2.2: БД автоматично створюється з назвою `smart_goblin`, користувачем `goblin` та паролем з `.env`.
+- [x] TC-2.3: Volume `pgdata-dev` зберігає дані між перезапусками контейнера.
+- [x] TC-2.4: Скрипт `scripts/dev-db.ps1 start|stop|reset` керує dev БД (reset видаляє volume і створює чисту БД).
+- [x] TC-2.5: Підключення до БД працює з `DATABASE_URL` з `.env.example` без змін.
 
 ---
 
