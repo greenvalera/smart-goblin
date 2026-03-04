@@ -42,6 +42,12 @@ smart-goblin/
 │   │   ├── advisor.py              # LLM-based advice generator
 │   │   └── deck.py                 # Deck/Sideboard data structures
 │   │
+│   ├── reports/                    # Report generation (shared by bot & HTML)
+│   │   ├── __init__.py
+│   │   ├── models.py               # Report data structures (DeckReport)
+│   │   ├── telegram.py             # Telegram markdown formatter
+│   │   └── html.py                 # HTML report generator
+│   │
 │   ├── vision/                     # Image recognition module
 │   │   ├── __init__.py
 │   │   ├── recognizer.py           # GPT-4o Vision card recognition

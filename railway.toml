@@ -1,0 +1,7 @@
+[build]
+dockerfile = "Dockerfile"
+
+[deploy]
+startCommand = "sh scripts/start.sh"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
