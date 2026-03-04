@@ -29,9 +29,19 @@ def _get_database_url() -> str:
     url = os.getenv("DATABASE_URL", "")
     if not url:
         raise ValueError("DATABASE_URL environment variable is required")
+    # When running locally with `railway run`, DATABASE_URL points to the internal
+    # Railway network (.railway.internal) which is unreachable outside Railway.
+    # Fall back to DATABASE_PUBLIC_URL automatically in that case.
+    if ".railway.internal" in url:
+        public_url = os.getenv("DATABASE_PUBLIC_URL", "")
+        if public_url:
+            url = public_url
     # Ensure URL uses asyncpg driver
-    if url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    # Railway provides "postgres://" format, SQLAlchemy needs "postgresql+asyncpg://"
+    if url.startswith("postgres://"):
+        url = "postgresql+asyncpg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://"):
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
     return url
 
 

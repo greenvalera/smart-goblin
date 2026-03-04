@@ -25,9 +25,19 @@ config = context.config
 
 # Set sqlalchemy.url from environment
 database_url = os.getenv("DATABASE_URL", "")
+# When running locally with `railway run`, DATABASE_URL points to the internal
+# Railway network (.railway.internal) which is unreachable outside Railway.
+# Fall back to DATABASE_PUBLIC_URL automatically in that case.
+if ".railway.internal" in database_url:
+    public_url = os.getenv("DATABASE_PUBLIC_URL", "")
+    if public_url:
+        database_url = public_url
 # Ensure URL uses asyncpg driver
-if database_url.startswith("postgresql://"):
-    database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+# Railway provides "postgres://" format, SQLAlchemy needs "postgresql+asyncpg://"
+if database_url.startswith("postgres://"):
+    database_url = "postgresql+asyncpg://" + database_url[len("postgres://"):]
+elif database_url.startswith("postgresql://"):
+    database_url = "postgresql+asyncpg://" + database_url[len("postgresql://"):]
 config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging
