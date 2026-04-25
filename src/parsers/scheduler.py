@@ -60,9 +60,17 @@ async def run_updates() -> None:
                 logger.info("Updating set %s (%s)...", set_code, set_obj.name)
 
                 # --- Scryfall: card metadata ---
+                main_set_card_names: set[str] = set()
                 try:
                     cards = await scryfall.fetch_set_cards(set_code)
                     if cards:
+                        # Include both full name and front-face name for
+                        # split / prepare layout cards: Scryfall stores them
+                        # as "Front // Back" but 17lands uses only the front.
+                        for c in cards:
+                            main_set_card_names.add(c.name)
+                            if " // " in c.name:
+                                main_set_card_names.add(c.name.split(" // ", 1)[0])
                         repo_cards = [
                             RepoCardData(
                                 name=c.name,
@@ -85,8 +93,13 @@ async def run_updates() -> None:
                     logger.error("Unexpected error fetching Scryfall data for %s: %s", set_code, exc)
 
                 # --- 17lands: ratings ---
+                # Pass main-set card names so per-color stats exclude bonus-sheet
+                # reprints that 17lands mixes into the same feed.
                 try:
-                    ratings = await seventeen.fetch_ratings(set_code)
+                    ratings = await seventeen.fetch_ratings(
+                        set_code,
+                        main_set_card_names=main_set_card_names or None,
+                    )
                     if ratings:
                         repo_ratings = [
                             RepoRatingData(
