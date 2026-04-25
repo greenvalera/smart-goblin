@@ -8,6 +8,7 @@ Fetches card ratings and win rates from 17lands.com API.
 import asyncio
 import logging
 import re
+import statistics
 import unicodedata
 from decimal import Decimal
 from typing import Any, Optional
@@ -28,30 +29,47 @@ logger = logging.getLogger(__name__)
 # Minimum games threshold for high confidence ratings
 MIN_GAMES_FOR_CONFIDENCE = 200
 
+# Minimum cards in a color group to compute reliable color statistics
+MIN_CARDS_FOR_COLOR_STATS = 5
+
 # Letter grade to numeric rating mapping (0-5 scale)
 # Based on 17lands grading system
 GRADE_TO_RATING: dict[str, Decimal] = {
-    "A+": Decimal("5.0"),   # Bomb, first pick
-    "A": Decimal("4.5"),    # Excellent card
-    "A-": Decimal("4.0"),   # Very strong
-    "B+": Decimal("3.5"),   # Strong card
-    "B": Decimal("3.0"),    # Solid playable
-    "B-": Decimal("2.5"),   # Good playable
-    "C+": Decimal("2.0"),   # Average playable
-    "C": Decimal("1.5"),    # Filler
-    "C-": Decimal("1.0"),   # Weak filler
-    "D+": Decimal("0.75"),  # Below average
-    "D": Decimal("0.5"),    # Weak card
-    "D-": Decimal("0.25"),  # Very weak
-    "F": Decimal("0.0"),    # Unplayable
+    "A+": Decimal("5.0"),
+    "A": Decimal("4.5"),
+    "A-": Decimal("4.0"),
+    "B+": Decimal("3.5"),
+    "B": Decimal("3.0"),
+    "B-": Decimal("2.5"),
+    "C+": Decimal("2.0"),
+    "C": Decimal("1.5"),
+    "C-": Decimal("1.0"),
+    "D+": Decimal("0.75"),
+    "D": Decimal("0.5"),
+    "D-": Decimal("0.25"),
+    "F": Decimal("0.0"),
 }
 
-# Win rate (GIH WR %) to letter grade thresholds.
-# Calibrated against actual 17lands grades (which use per-color z-scores).
-# These absolute thresholds approximate the 17lands grading across sets
-# where the average GIH WR is ~56-57%.
-# Thresholds are (min_win_rate_pct, grade_label), checked top-down.
-WIN_RATE_GRADE_THRESHOLDS: list[tuple[float, str]] = [
+# Z-score thresholds matching 17lands per-color grading methodology.
+# Source: MTGA_Draft_17Lands GRADE_DEVIATION_DICT
+# z_score = (card_gih_wr - color_mean_gih_wr) / color_population_std
+Z_SCORE_GRADE_THRESHOLDS: list[tuple[float, str]] = [
+    (2.00, "A+"),
+    (1.67, "A"),
+    (1.33, "A-"),
+    (1.00, "B+"),
+    (0.67, "B"),
+    (0.33, "B-"),
+    (0.00, "C+"),
+    (-0.33, "C"),
+    (-0.67, "C-"),
+    (-1.00, "D+"),
+    (-1.33, "D"),
+    (-1.67, "D-"),
+]
+
+# Absolute GIH WR thresholds used only when color group is too small for z-scores
+_FALLBACK_WIN_RATE_THRESHOLDS: list[tuple[float, str]] = [
     (64.0, "A+"),
     (62.5, "A"),
     (61.0, "A-"),
@@ -70,19 +88,30 @@ WIN_RATE_GRADE_THRESHOLDS: list[tuple[float, str]] = [
 UNRATED_GRADES = {"-", "SB"}  # No data / sideboard-only
 
 
-def win_rate_to_grade(win_rate_pct: float) -> str:
+def z_score_to_grade(z_score: float) -> str:
     """
-    Calculate letter grade from GIH win rate percentage.
-
-    Used as a fallback when 17lands API does not return ``color_grade``.
+    Convert a per-color z-score to a letter grade, matching 17lands methodology.
 
     Args:
-        win_rate_pct: Win rate as a percentage (e.g. 55.0 for 55%).
+        z_score: Standard deviations from the color mean GIH win rate.
 
     Returns:
         Letter grade string (A+ through F).
     """
-    for threshold, grade in WIN_RATE_GRADE_THRESHOLDS:
+    for threshold, grade in Z_SCORE_GRADE_THRESHOLDS:
+        if z_score >= threshold:
+            return grade
+    return "F"
+
+
+def win_rate_to_grade(win_rate_pct: float) -> str:
+    """
+    Absolute-threshold fallback grade from GIH win rate.
+
+    Used when a color group is too small for z-score calculation, or as a
+    display fallback in reports when no stored grade is available.
+    """
+    for threshold, grade in _FALLBACK_WIN_RATE_THRESHOLDS:
         if win_rate_pct >= threshold:
             return grade
     return "F"
@@ -229,35 +258,25 @@ class SeventeenLandsParser:
         Returns:
             RatingData object with extracted fields.
         """
-        # Extract card name
         card_name = card_data.get("name", "Unknown")
+        color = card_data.get("color", "")
 
-        # Extract win rate - 17lands provides "ever_drawn_win_rate" as the primary metric
-        # This represents the game win rate when the card is drawn at any point
         win_rate_raw = card_data.get("ever_drawn_win_rate")
         win_rate = None
         if win_rate_raw is not None:
-            # Convert from decimal (0.55) to percentage (55.0)
             win_rate = Decimal(str(round(float(win_rate_raw) * 100, 2)))
 
-        # Extract games played - use "game_count" or "ever_drawn_game_count"
         games_played = card_data.get("game_count") or card_data.get(
             "ever_drawn_game_count"
         )
         if games_played is not None:
             games_played = int(games_played)
 
-        # Extract letter grade from 17lands (A+, A, A-, B+, B, etc.)
+        # 17lands API does not return color_grade; grade is assigned later
+        # in _apply_color_grades() using per-color z-scores.
         grade = card_data.get("color_grade")
-
-        # If grade is missing but win rate exists, compute grade from win rate
-        if grade is None and win_rate is not None:
-            grade = win_rate_to_grade(float(win_rate))
-
-        # Convert letter grade to numeric rating (0-5 scale)
         rating = grade_to_rating(grade)
 
-        # Determine confidence level
         low_confidence = (games_played or 0) < MIN_GAMES_FOR_CONFIDENCE
 
         return RatingData(
@@ -269,7 +288,44 @@ class SeventeenLandsParser:
             format=format_name,
             low_confidence=low_confidence,
             grade=grade,
+            color=color,
         )
+
+    def _apply_color_grades(self, ratings: list[RatingData]) -> None:
+        """
+        Assign grades to all ratings using per-color z-scores.
+
+        Replicates 17lands methodology: each card's GIH WR is compared to the
+        mean and population std of all cards of the same color in the set.
+        Cards with grades already set by the API are left unchanged.
+        """
+        color_groups: dict[str, list[RatingData]] = {}
+        for r in ratings:
+            if r.win_rate is not None:
+                key = r.color or "colorless"
+                color_groups.setdefault(key, []).append(r)
+
+        for color, group in color_groups.items():
+            win_rates = [float(r.win_rate) for r in group]
+
+            if len(win_rates) < MIN_CARDS_FOR_COLOR_STATS:
+                for r in group:
+                    if r.grade is None:
+                        r.grade = win_rate_to_grade(float(r.win_rate))
+                        r.rating = grade_to_rating(r.grade)
+                continue
+
+            mean_wr = statistics.mean(win_rates)
+            std_wr = statistics.pstdev(win_rates)
+
+            if std_wr == 0:
+                continue
+
+            for r in group:
+                if r.grade is None:
+                    z = (float(r.win_rate) - mean_wr) / std_wr
+                    r.grade = z_score_to_grade(z)
+                    r.rating = grade_to_rating(r.grade)
 
     async def fetch_ratings(
         self, set_code: str, format_name: str = "PremierDraft"
@@ -314,6 +370,8 @@ class SeventeenLandsParser:
         for card_data in cards_data:
             rating = self._parse_rating(card_data, format_name)
             ratings.append(rating)
+
+        self._apply_color_grades(ratings)
 
         logger.info(
             f"Fetched {len(ratings)} ratings for {set_code} ({format_name}), "
