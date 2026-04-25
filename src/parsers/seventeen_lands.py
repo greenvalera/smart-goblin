@@ -294,13 +294,24 @@ class SeventeenLandsParser:
             color=color,
         )
 
-    def _apply_color_grades(self, ratings: list[RatingData]) -> None:
+    def _apply_color_grades(
+        self,
+        ratings: list[RatingData],
+        main_set_card_names: Optional[set[str]] = None,
+    ) -> None:
         """
         Assign grades to all ratings using per-color z-scores.
 
         Replicates 17lands methodology: each card's GIH WR is compared to the
-        mean and population std of all cards of the same color in the set.
+        mean and population std of cards of the same color in the set.
         Cards with grades already set by the API are left unchanged.
+
+        17lands' card_ratings endpoint mixes bonus-sheet/reprint cards with
+        main-set cards. These reprints inflate the per-color std and shift
+        grades on borderline cards. Pass ``main_set_card_names`` to restrict
+        the stats sample to true main-set cards (e.g. those returned by
+        Scryfall for this set code). Grades are still assigned to every
+        rating, including bonus-sheet cards.
         """
         color_groups: dict[str, list[RatingData]] = {}
         for r in ratings:
@@ -309,17 +320,24 @@ class SeventeenLandsParser:
                 color_groups.setdefault(key, []).append(r)
 
         for color, group in color_groups.items():
-            win_rates = [float(r.win_rate) for r in group]
+            if main_set_card_names is not None:
+                stats_sample = [
+                    r for r in group if r.card_name in main_set_card_names
+                ]
+            else:
+                stats_sample = group
 
-            if len(win_rates) < MIN_CARDS_FOR_COLOR_STATS:
+            sample_wrs = [float(r.win_rate) for r in stats_sample]
+
+            if len(sample_wrs) < MIN_CARDS_FOR_COLOR_STATS:
                 for r in group:
                     if r.grade is None:
                         r.grade = win_rate_to_grade(float(r.win_rate))
                         r.rating = grade_to_rating(r.grade)
                 continue
 
-            mean_wr = statistics.mean(win_rates)
-            std_wr = statistics.pstdev(win_rates)
+            mean_wr = statistics.mean(sample_wrs)
+            std_wr = statistics.pstdev(sample_wrs)
 
             if std_wr == 0:
                 continue
@@ -331,7 +349,10 @@ class SeventeenLandsParser:
                     r.rating = grade_to_rating(r.grade)
 
     async def fetch_ratings(
-        self, set_code: str, format_name: str = "PremierDraft"
+        self,
+        set_code: str,
+        format_name: str = "PremierDraft",
+        main_set_card_names: Optional[set[str]] = None,
     ) -> list[RatingData]:
         """
         Fetch card ratings for a given set and format.
@@ -374,7 +395,7 @@ class SeventeenLandsParser:
             rating = self._parse_rating(card_data, format_name)
             ratings.append(rating)
 
-        self._apply_color_grades(ratings)
+        self._apply_color_grades(ratings, main_set_card_names)
 
         logger.info(
             f"Fetched {len(ratings)} ratings for {set_code} ({format_name}), "
