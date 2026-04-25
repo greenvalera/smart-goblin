@@ -264,7 +264,10 @@ class SeventeenLandsParser:
         win_rate_raw = card_data.get("ever_drawn_win_rate")
         win_rate = None
         if win_rate_raw is not None:
-            win_rate = Decimal(str(round(float(win_rate_raw) * 100, 2)))
+            # Keep 6 decimal places for accurate per-color z-score calculation.
+            # The DB column (DECIMAL 5,2) rounds to 2dp on storage — precision
+            # only matters here, in the in-memory RatingData used by _apply_color_grades.
+            win_rate = Decimal(str(round(float(win_rate_raw) * 100, 6)))
 
         games_played = card_data.get("game_count") or card_data.get(
             "ever_drawn_game_count"
