@@ -11,7 +11,6 @@ from typing import Optional
 
 from src.core.deck import CardInfo, Deck, DeckAnalysis
 from src.core.lands import LandRecommendation
-from src.parsers.seventeen_lands import win_rate_to_grade
 
 # Grade thresholds: (min_rating, grade_label).
 # Aligned with GRADE_TO_RATING in src/parsers/seventeen_lands.py
@@ -68,9 +67,6 @@ class CardSummary:
     def from_card_info(cls, info: CardInfo) -> "CardSummary":
         """Create a CardSummary from a CardInfo object."""
         grade = rating_to_grade(info.rating)
-        # Fallback: compute grade from win_rate when rating is missing
-        if grade == "?" and info.win_rate is not None:
-            grade = win_rate_to_grade(float(info.win_rate))
         return cls(
             name=info.name,
             rating=info.rating,
