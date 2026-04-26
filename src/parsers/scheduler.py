@@ -93,8 +93,16 @@ async def run_updates() -> None:
                     logger.error("Unexpected error fetching Scryfall data for %s: %s", set_code, exc)
 
                 # --- 17lands: ratings ---
-                # Pass main-set card names so per-color stats exclude bonus-sheet
-                # reprints that 17lands mixes into the same feed.
+                # Pass main-set card names so the global stats pool excludes
+                # bonus-sheet reprints that 17lands mixes into the same feed.
+                #
+                # We deliberately do NOT pass start_date: Scryfall's
+                # release_date is the *paper* release, but 17lands' format
+                # actually starts ~3 days earlier on Arena (early access).
+                # Passing Scryfall's date would chop those 3 days from the
+                # sample and shift grades. The API default (no date filter)
+                # returns the full format history, which matches the site's
+                # default for newly released sets exactly.
                 try:
                     ratings = await seventeen.fetch_ratings(
                         set_code,

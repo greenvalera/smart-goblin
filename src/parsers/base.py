@@ -47,7 +47,6 @@ class RatingData:
     format: Optional[str] = None
     low_confidence: bool = False
     grade: Optional[str] = None  # Letter grade from 17lands (A+, A, A-, B+, etc.)
-    color: Optional[str] = None  # Card color(s) from 17lands (e.g. "W", "WU")
 
 
 class BaseParser(ABC):
