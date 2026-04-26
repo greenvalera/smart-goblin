@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Smart Goblin is a Telegram bot that analyzes MTG Draft decks via image recognition (GPT-4o Vision) and provides AI-powered advice. All user-facing text is in Ukrainian.
 
+## Task Tracker
+
+Tasks live in Notion: [Smart Goblin → Tasks Tracker](https://www.notion.so/Smart-Goblin-34e5c1393d3680e8bf47f3b6ef1ed4fb).
+Use the Notion MCP tools (`mcp__claude_ai_Notion__*`) to read, create, and update tasks. Don't add new task files under `doc/`.
+
 ## Running Python (venv)
 
 The project uses a virtual environment at `.venv/`. On Windows, all Python/pytest/alembic commands must be run through PowerShell via `powershell.exe -Command`:
