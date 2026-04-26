@@ -19,6 +19,11 @@ from src.config import get_settings
 from src.db.repository import CardRepository, SetRepository
 from src.db.session import get_session
 from src.parsers.base import ParserError
+from src.parsers.grade_validator import (
+    ValidationReport,
+    log_validation_report,
+    validate_set_grades,
+)
 from src.parsers.scryfall import ScryfallParser
 from src.parsers.seventeen_lands import SeventeenLandsParser
 from src.db.repository import CardData as RepoCardData, RatingData as RepoRatingData
@@ -26,18 +31,29 @@ from src.db.repository import CardData as RepoCardData, RatingData as RepoRating
 logger = logging.getLogger(__name__)
 
 
-async def run_updates() -> None:
+async def run_updates() -> list[ValidationReport]:
     """
     Run all parser updates for sets stored in the database.
 
     Fetches card metadata from Scryfall and ratings from 17lands
-    for every set present in the DB. Errors are logged but never
-    propagated so that a single failing parser cannot crash the bot.
+    for every set present in the DB. After each set's ratings are
+    upserted, runs a grade validation pass that re-fetches 17lands
+    and compares against the freshly persisted DB grades; mismatches
+    are logged at WARNING but never raise.
+
+    Errors are logged but never propagated so that a single failing
+    parser cannot crash the bot.
+
+    Returns:
+        Per-set ``ValidationReport`` list. Used by the manual
+        ``--strict`` CLI invocation to gate its exit code; the daily
+        APScheduler trigger ignores the return value.
     """
     logger.info("Starting scheduled parser update...")
 
     scryfall = ScryfallParser()
     seventeen = SeventeenLandsParser()
+    reports: list[ValidationReport] = []
 
     try:
         async with get_session() as session:
@@ -53,7 +69,7 @@ async def run_updates() -> None:
 
             if not sets:
                 logger.info("No sets in database, skipping update.")
-                return
+                return reports
 
             for set_obj in sets:
                 set_code = set_obj.code
@@ -128,6 +144,22 @@ async def run_updates() -> None:
                 except Exception as exc:
                     logger.error("Unexpected error fetching 17lands data for %s: %s", set_code, exc)
 
+                # --- Validation: compare fresh 17lands grades vs DB ---
+                # Re-fetches 17lands with the same params used above and
+                # checks every card's stored grade still matches what the
+                # site computes. Failures here are warnings, not hard errors.
+                try:
+                    report = await validate_set_grades(
+                        session,
+                        set_code,
+                        seventeen,
+                        main_set_card_names or set(),
+                    )
+                    log_validation_report(report)
+                    reports.append(report)
+                except Exception as exc:
+                    logger.error("Grade validation failed for %s: %s", set_code, exc)
+
     except Exception as exc:
         logger.error("Scheduler update failed: %s", exc)
     finally:
@@ -135,6 +167,7 @@ async def run_updates() -> None:
         await seventeen.close()
 
     logger.info("Scheduled parser update finished.")
+    return reports
 
 
 def create_scheduler() -> AsyncIOScheduler:
@@ -164,7 +197,10 @@ def create_scheduler() -> AsyncIOScheduler:
 
 
 if __name__ == "__main__":
-    # Manual run: python -m src.parsers.scheduler
+    # Manual run: python -m src.parsers.scheduler [--strict]
+    #
+    # ``--strict`` exits 1 if any set has grade mismatches. Useful as a
+    # post-update gate; the daily APScheduler trigger ignores this flag.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -172,5 +208,15 @@ if __name__ == "__main__":
         stream=sys.stdout,
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    logger.info("Running parser update manually...")
-    asyncio.run(run_updates())
+    strict = "--strict" in sys.argv[1:]
+    logger.info("Running parser update manually (strict=%s)...", strict)
+    reports = asyncio.run(run_updates())
+    if strict:
+        total_mismatches = sum(r.mismatched for r in reports)
+        if total_mismatches > 0:
+            logger.error(
+                "Strict mode: %d grade mismatch(es) across %d set(s).",
+                total_mismatches,
+                sum(1 for r in reports if r.mismatched > 0),
+            )
+            sys.exit(1)
