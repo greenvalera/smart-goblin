@@ -341,6 +341,7 @@ class SeventeenLandsParser:
 
         ratings = [self._parse_rating(card_data, format_name) for card_data in cards_data]
         self._apply_grades(ratings, main_set_card_names)
+        self._canonicalize_dfc_names(ratings, main_set_card_names)
 
         logger.info(
             f"Fetched {len(ratings)} ratings for {set_code} ({format_name}), "
@@ -348,6 +349,41 @@ class SeventeenLandsParser:
         )
 
         return ratings
+
+    def _canonicalize_dfc_names(
+        self,
+        ratings: list[RatingData],
+        main_set_card_names: Optional[set[str]] = None,
+    ) -> None:
+        """
+        Rewrite front-face-only DFC ratings into Scryfall's full ``Front // Back``
+        form so they match how cards are stored in the DB.
+
+        17lands returns DFC ratings under the front face name only
+        (``"Adventurous Eater"``), but Scryfall stores the card as
+        ``"Adventurous Eater // Have a Bite"``. Without rewriting,
+        ``CardRepository.upsert_ratings`` cannot find the card by exact name
+        and silently drops the rating.
+        """
+        if not main_set_card_names:
+            return
+
+        front_to_full: dict[str, str] = {}
+        for full_name in main_set_card_names:
+            if " // " not in full_name:
+                continue
+            front_face = full_name.split(" // ", 1)[0]
+            front_to_full[normalize_card_name(front_face)] = full_name
+
+        if not front_to_full:
+            return
+
+        for r in ratings:
+            if " // " in r.card_name:
+                continue
+            full = front_to_full.get(normalize_card_name(r.card_name))
+            if full is not None:
+                r.card_name = full
 
     def match_card_names(
         self,
