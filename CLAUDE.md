@@ -118,9 +118,12 @@ Be careful: `railway ssh ...` runs against whichever environment is currently li
 
 Release workflow:
 
-1. Push commits to `stage` branch → Railway auto-deploys to `staging`.
-2. Test via the staging Telegram bot.
-3. Merge `stage` → `main` (PR) → Railway auto-deploys to `production`.
+1. For each new task, create a dev branch off `stage` (e.g. `feat/<slug>`, `fix/<slug>`).
+2. Implement the change on the dev branch and open a PR into `stage` for review.
+3. Merge the dev branch into `stage` and push `stage` → Railway auto-deploys to `staging`.
+4. Open a PR from `stage` → `main` so the pending release is visible.
+5. Test via the staging Telegram bot. Iterate on the dev branch (or follow-up dev branches into `stage`) until green.
+6. Release: merge the `stage` → `main` PR → Railway auto-deploys to `production`.
 
 Setting / rotating the staging Telegram token (do this once after creating a bot in @BotFather):
 
