@@ -95,6 +95,74 @@ Notes:
   `git ls-files --eol scripts/start.sh`
   Expected working tree state: `w/lf`
 
+### Environments: production vs staging
+
+The `motivated-illumination` project has two environments inside one Railway project, each with its own `smart-goblin` service and its own `Postgres` plugin (separate volumes, separate data):
+
+| Environment  | Source branch | Telegram bot         | Parser scheduler | LOG_LEVEL |
+|--------------|---------------|----------------------|------------------|-----------|
+| `production` | `main`        | prod BotFather token | enabled          | INFO      |
+| `staging`    | `stage`       | staging BotFather token (separate bot — required, see below) | disabled | DEBUG |
+
+Why a separate Telegram bot for staging: a single bot token can only have one active long-poll consumer. If staging and prod share a token, both fight over `getUpdates` and Telegram returns `409 Conflict`.
+
+Switching environments via CLI:
+
+```bash
+railway environment production   # or: staging
+railway service smart-goblin     # link service in current env
+railway status                   # confirm current env + service
+```
+
+Be careful: `railway ssh ...` runs against whichever environment is currently linked. Always check `railway status` before destructive or data-touching commands.
+
+Release workflow:
+
+1. Push commits to `stage` branch → Railway auto-deploys to `staging`.
+2. Test via the staging Telegram bot.
+3. Merge `stage` → `main` (PR) → Railway auto-deploys to `production`.
+
+Setting / rotating the staging Telegram token (do this once after creating a bot in @BotFather):
+
+```bash
+railway environment staging
+railway service smart-goblin
+railway variables --set TELEGRAM_BOT_TOKEN=<staging_token>
+# Triggers a redeploy. The staging container will crash on startup until a real token is set.
+```
+
+Seeding the staging Postgres after first deploy:
+
+`src.parsers.scheduler` only refreshes sets that already exist in the DB — on a fresh staging Postgres it logs `No sets in database, skipping update` and exits. Use `scripts.add_set` per set to seed; it pulls cards from Scryfall and ratings from 17lands.
+
+```bash
+railway environment staging
+railway service smart-goblin
+
+# Seed each set you want to mirror from prod
+railway ssh python -m scripts.add_set ECL
+railway ssh python -m scripts.add_set TMT
+railway ssh python -m scripts.add_set SOS
+
+# Afterwards, the scheduler can refresh ratings on demand
+railway ssh python -m src.parsers.scheduler --strict
+```
+
+To list sets currently in prod (to know what to seed), switch to production first and query:
+
+```bash
+railway environment production && railway service smart-goblin
+railway ssh "python -c \"
+import asyncio
+from src.db.session import get_session
+from sqlalchemy import text
+async def m():
+    async with get_session() as s:
+        r = await s.execute(text('SELECT code FROM sets ORDER BY release_date'))
+        print(','.join(c for (c,) in r.all()))
+asyncio.run(m())\""
+```
+
 ## Architecture
 
 **Layered async architecture with interface-agnostic core:**
