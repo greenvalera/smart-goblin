@@ -580,6 +580,41 @@ class TestPromptBuilders:
         assert "CARD NAME REFERENCE LIST" in prompt
         assert "Cinder Strike" in prompt
 
+    def test_physical_prompt_supports_single_card_photos(self):
+        """
+        Regression: a close-up photo of a single physical card (e.g. a
+        showcase / bonus sheet card) was previously being misclassified
+        because the prompt only described decks. The prompt must now
+        explicitly mark single-card photos as a valid input.
+        """
+        assert "single-card" in PHYSICAL_RECOGNITION_PROMPT.lower() or (
+            "single card" in PHYSICAL_RECOGNITION_PROMPT.lower()
+        )
+        assert "main_deck" in PHYSICAL_RECOGNITION_PROMPT
+        # Must instruct the model not to drop a clearly-visible single card
+        assert "empty main_deck" in PHYSICAL_RECOGNITION_PROMPT.lower()
+
+    def test_general_prompt_supports_single_card_photos(self):
+        """The general (UNKNOWN-layout) prompt is what runs on bare photos
+        sent to the bot — it must also handle single-card close-ups."""
+        assert (
+            "single-card" in GENERAL_RECOGNITION_PROMPT.lower()
+            or "single card" in GENERAL_RECOGNITION_PROMPT.lower()
+        )
+        assert "empty main_deck" in GENERAL_RECOGNITION_PROMPT.lower()
+
+    def test_prompts_mention_alternate_frames(self):
+        """
+        Regression: showcase / borderless / bonus-sheet frames were
+        previously not handled. The physical and general prompts must
+        now name these frame styles so the model still reads card names.
+        """
+        for prompt in (PHYSICAL_RECOGNITION_PROMPT, GENERAL_RECOGNITION_PROMPT):
+            lower = prompt.lower()
+            assert "showcase" in lower
+            assert "borderless" in lower
+            assert "bonus sheet" in lower
+
 
 # =============================================================================
 # Known cards in recognizer tests
