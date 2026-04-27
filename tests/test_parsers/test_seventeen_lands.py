@@ -147,6 +147,37 @@ class TestApplyGrades:
         central = main_set[8]  # win_rate = 55.0 == mean
         assert central.grade == "C", f"central card grade={central.grade}"
 
+    def test_dfc_names_rewritten_to_scryfall_form(self):
+        """
+        17lands returns DFC ratings under the front-face name only. The parser
+        must rewrite them to Scryfall's "Front // Back" form so that
+        CardRepository.upsert_ratings can match the stored card by exact name.
+        """
+        parser = SeventeenLandsParser()
+        ratings = [
+            self._make_rating("Adventurous Eater", 54.7),
+            self._make_rating("Stirring Hopesinger", 64.1),
+        ]
+        main_set_names = {
+            "Adventurous Eater // Have a Bite",
+            "Adventurous Eater",
+            "Stirring Hopesinger",
+        }
+
+        parser._canonicalize_dfc_names(ratings, main_set_names)
+
+        names = {r.card_name for r in ratings}
+        assert "Adventurous Eater // Have a Bite" in names
+        assert "Adventurous Eater" not in names
+        # Single-faced cards are untouched
+        assert "Stirring Hopesinger" in names
+
+    def test_canonicalize_no_op_without_main_set_names(self):
+        parser = SeventeenLandsParser()
+        ratings = [self._make_rating("Adventurous Eater", 54.7)]
+        parser._canonicalize_dfc_names(ratings, None)
+        assert ratings[0].card_name == "Adventurous Eater"
+
     def test_too_few_cards_skips_grading(self):
         parser = SeventeenLandsParser()
         ratings = [
