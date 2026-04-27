@@ -234,10 +234,18 @@ def build_recognition_prompt(
         card_list = "\n".join(sorted(known_cards))
         prompt += (
             f"\n\n=== CARD NAME REFERENCE LIST ===\n"
-            f"The following is the COMPLETE list of valid card names for this set. "
-            f"You MUST ONLY return card names that appear in this list. "
-            f"Do NOT invent card names or use names from other sets. "
-            f"If you cannot match a visible card to a name on this list, skip it.\n\n"
+            f"The following is the list of card names from the user's active set. "
+            f"PREFER these names when reading cards — when a visible card name is "
+            f"ambiguous or partially obscured, match it to the closest entry in "
+            f"this list (account for OCR ambiguity, partial visibility, typos). "
+            f"Do NOT invent card names or guess.\n"
+            f"\n"
+            f"IMPORTANT: This list is a hint, not a hard filter. If a card is "
+            f"clearly visible AND its name does NOT appear in this list (likely "
+            f"because the card is from a different set, e.g. a showcase/bonus "
+            f"sheet reprint, a promo, or a card from another set the user is "
+            f"showing), still return its exact printed name. Do NOT drop a "
+            f"clearly readable card just because it isn't in this list.\n\n"
             f"{card_list}\n"
             f"=== END REFERENCE LIST ==="
         )
