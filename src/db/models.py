@@ -11,6 +11,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     ARRAY,
+    CheckConstraint,
     DECIMAL,
     BigInteger,
     Date,
@@ -36,11 +37,23 @@ class Set(Base):
     """MTG Set model."""
 
     __tablename__ = "sets"
+    __table_args__ = (
+        CheckConstraint(
+            "parent_set_code IS NULL OR parent_set_code != code",
+            name="ck_sets_parent_not_self",
+        ),
+        Index("ix_sets_parent_set_code", "parent_set_code"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     release_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    parent_set_code: Mapped[Optional[str]] = mapped_column(
+        String(10),
+        ForeignKey("sets.code", ondelete="SET NULL", name="fk_sets_parent_set_code"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -51,6 +64,17 @@ class Set(Base):
     )
     analyses: Mapped[list["Analysis"]] = relationship(
         "Analysis", back_populates="set"
+    )
+    parent: Mapped[Optional["Set"]] = relationship(
+        "Set",
+        remote_side="Set.code",
+        foreign_keys="Set.parent_set_code",
+        back_populates="children",
+    )
+    children: Mapped[list["Set"]] = relationship(
+        "Set",
+        foreign_keys="Set.parent_set_code",
+        back_populates="parent",
     )
 
     def __repr__(self) -> str:
