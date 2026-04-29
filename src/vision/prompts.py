@@ -65,15 +65,32 @@ Respond ONLY with the JSON object."""
 
 
 PHYSICAL_RECOGNITION_PROMPT = """You are an expert Magic: The Gathering card recognition system.
-You are analyzing a photo of physical MTG cards laid out on a surface.
+You are analyzing a photo of physical MTG cards. The photo can show either a deck
+laid out on a surface, or a close-up of a single card.
 
 Physical Card Layout Rules:
-- Cards are typically laid out in rows on a table or mat
-- The larger group of cards (usually 23+ non-land cards + lands) is the main deck
-- A smaller separate group (typically 0-15 cards, often to the side) is the sideboard
+- A deck photo: cards are laid out in rows on a table or mat
+- A deck's main deck is usually 23+ non-land cards + lands
+- A deck's sideboard is a smaller separate group (typically 0-15 cards, often to the side)
 - Cards may be partially overlapping in a fan/spread arrangement
 - Some cards may be at angles or partially obscured
 - Lands may be grouped separately from non-land cards within the main deck
+
+Single Card Photos:
+- A single-card photo is a valid input — a close-up of ONE card (often held in hand)
+- If only one card is clearly visible in the image, return it in main_deck and leave sideboard empty
+- Do NOT refuse to identify the card just because there is no deck context
+- Do NOT return an empty main_deck for a clearly visible single card
+
+Frame Styles — IMPORTANT:
+- Cards may use the standard frame OR alternate frames: showcase, borderless,
+  bonus sheet, full-art, extended-art, retro, anime, or special promo treatments
+- The card name is ALWAYS readable from the title bar at the top, regardless of frame
+- Set symbol position may differ on showcase/bonus sheet cards (sometimes hidden,
+  moved, or replaced by a watermark) — read the set code from the bottom info line
+  (e.g., "SOA · EN") instead of relying on the symbol
+- Bonus sheet cards may have a special collector number prefix (e.g., "U 0004",
+  "BS 0010") — this still means the card belongs to the printed set code
 
 Identification Rules:
 - Read the card name from the title bar at the top of each card
@@ -119,7 +136,7 @@ Analyze the provided image and identify all visible MTG cards.
 
 First, determine the image type:
 1. **MTG Arena screenshot** — digital interface showing a deck as card thumbnails in a grid
-2. **Physical card photo** — photo of real cards laid out on a surface
+2. **Physical card photo** — photo of real cards (a deck laid out, OR a close-up of a single card)
 
 For MTG Arena screenshots:
 - Cards in the main grid area are the main deck
@@ -127,11 +144,26 @@ For MTG Arena screenshots:
 - Pay attention to card quantities (stacked cards or "x2" indicators)
 - Read card names from the thumbnail text
 
-For physical card photos:
+For physical card photos (deck):
 - The larger group of cards (23+ spells + lands, ~40 total) is the main deck
 - A smaller separate group (0-15 cards) is the sideboard
 - Read card names from the title bar at the top of each card
 - Skip face-down or completely unreadable cards
+
+For physical card photos (single card close-up):
+- A single-card close-up is a valid input — usually one card held in hand or laid alone
+- If only one card is clearly visible, return it in main_deck and leave sideboard empty
+- Do NOT refuse the image or return an empty main_deck just because there is no deck context
+
+Frame Styles — IMPORTANT:
+- Cards may use the standard frame OR alternate frames: showcase, borderless,
+  bonus sheet, full-art, extended-art, retro, anime, or special promo treatments
+- The card name is ALWAYS readable from the title bar at the top, regardless of frame
+- Set symbol position may differ on showcase/bonus sheet cards (sometimes hidden,
+  moved, or replaced by a watermark) — read the set code from the bottom info line
+  (e.g., "SOA · EN") instead of relying solely on the symbol
+- Bonus sheet cards may have a special collector number prefix (e.g., "U 0004",
+  "BS 0010") — this still means the card belongs to the printed set code
 
 Important — Lands:
 - Basic lands (Plains, Island, Swamp, Mountain, Forest) may NOT be visible in the image
@@ -202,10 +234,18 @@ def build_recognition_prompt(
         card_list = "\n".join(sorted(known_cards))
         prompt += (
             f"\n\n=== CARD NAME REFERENCE LIST ===\n"
-            f"The following is the COMPLETE list of valid card names for this set. "
-            f"You MUST ONLY return card names that appear in this list. "
-            f"Do NOT invent card names or use names from other sets. "
-            f"If you cannot match a visible card to a name on this list, skip it.\n\n"
+            f"The following is the list of card names from the user's active set. "
+            f"PREFER these names when reading cards — when a visible card name is "
+            f"ambiguous or partially obscured, match it to the closest entry in "
+            f"this list (account for OCR ambiguity, partial visibility, typos). "
+            f"Do NOT invent card names or guess.\n"
+            f"\n"
+            f"IMPORTANT: This list is a hint, not a hard filter. If a card is "
+            f"clearly visible AND its name does NOT appear in this list (likely "
+            f"because the card is from a different set, e.g. a showcase/bonus "
+            f"sheet reprint, a promo, or a card from another set the user is "
+            f"showing), still return its exact printed name. Do NOT drop a "
+            f"clearly readable card just because it isn't in this list.\n\n"
             f"{card_list}\n"
             f"=== END REFERENCE LIST ==="
         )

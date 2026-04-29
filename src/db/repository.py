@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import and_, delete, func, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -86,12 +86,30 @@ class CardRepository:
         self.session = session
 
     async def get_by_name(self, name: str, set_code: str) -> Optional[Card]:
-        """Get card by exact name and set code."""
+        """
+        Get card by exact name and set code.
+
+        Searches the requested set first; if not found, falls back to any
+        bonus-sheet child sets (where ``sets.parent_set_code == set_code``).
+        Lookup by a child code does NOT include the parent.
+        """
+        set_code_upper = set_code.upper()
+        priority = case((Set.code == set_code_upper, 0), else_=1)
         result = await self.session.execute(
             select(Card)
             .join(Set)
-            .where(and_(Card.name == name, Set.code == set_code.upper()))
-            .options(selectinload(Card.ratings))
+            .where(
+                and_(
+                    Card.name == name,
+                    or_(
+                        Set.code == set_code_upper,
+                        Set.parent_set_code == set_code_upper,
+                    ),
+                )
+            )
+            .options(selectinload(Card.ratings), joinedload(Card.set))
+            .order_by(priority)
+            .limit(1)
         )
         return result.scalar_one_or_none()
 
@@ -109,14 +127,27 @@ class CardRepository:
         """
         Get all card names for a set (lightweight query for fuzzy matching).
 
+        Includes cards from any bonus-sheet child sets (where
+        ``sets.parent_set_code == set_code``). Lookup by a child code does
+        NOT include the parent.
+
         Args:
             set_code: Set code (e.g., "ECL").
 
         Returns:
-            List of card name strings.
+            List of card name strings (parent + children, may contain
+            duplicates if the same name exists in both).
         """
+        set_code_upper = set_code.upper()
         result = await self.session.execute(
-            select(Card.name).join(Set).where(Set.code == set_code.upper())
+            select(Card.name)
+            .join(Set)
+            .where(
+                or_(
+                    Set.code == set_code_upper,
+                    Set.parent_set_code == set_code_upper,
+                )
+            )
         )
         return list(result.scalars().all())
 
@@ -145,6 +176,10 @@ class CardRepository:
         """
         Get cards with their ratings by card names and set code.
 
+        Includes cards from any bonus-sheet child sets (where
+        ``sets.parent_set_code == set_code``). When the same name exists in
+        both the parent and a child, the parent's card wins.
+
         Args:
             card_names: List of card names to fetch
             set_code: Set code (e.g., "MKM")
@@ -155,13 +190,34 @@ class CardRepository:
         if not card_names:
             return []
 
+        set_code_upper = set_code.upper()
+        priority = case((Set.code == set_code_upper, 0), else_=1)
         result = await self.session.execute(
             select(Card)
             .join(Set)
-            .where(and_(Card.name.in_(card_names), Set.code == set_code.upper()))
-            .options(selectinload(Card.ratings))
+            .where(
+                and_(
+                    Card.name.in_(card_names),
+                    or_(
+                        Set.code == set_code_upper,
+                        Set.parent_set_code == set_code_upper,
+                    ),
+                )
+            )
+            .options(selectinload(Card.ratings), joinedload(Card.set))
+            .order_by(Card.name, priority)
         )
-        return list(result.scalars().all())
+        cards = list(result.scalars().unique().all())
+
+        # Dedup by name, keeping the first occurrence (parent wins per ORDER BY).
+        seen: set[str] = set()
+        deduped: list[Card] = []
+        for card in cards:
+            if card.name in seen:
+                continue
+            seen.add(card.name)
+            deduped.append(card)
+        return deduped
 
     async def upsert_cards(self, cards: list[CardData]) -> int:
         """

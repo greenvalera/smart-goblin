@@ -8,12 +8,14 @@ Usage::
 
     python -m scripts.add_set FDN
     python -m scripts.add_set FDN --no-fetch
+    python -m scripts.add_set SOA --parent SOS  # link bonus-sheet to its main set
 """
 
 import argparse
 import asyncio
 import logging
 import sys
+from typing import Optional
 
 from src.db.repository import CardRepository, SetRepository
 from src.db.repository import CardData as RepoCardData, RatingData as RepoRatingData
@@ -25,15 +27,28 @@ from src.parsers.seventeen_lands import SeventeenLandsParser
 logger = logging.getLogger(__name__)
 
 
-async def add_set(set_code: str, *, fetch_cards: bool = True) -> None:
+async def add_set(
+    set_code: str,
+    *,
+    fetch_cards: bool = True,
+    parent_code: Optional[str] = None,
+) -> None:
     """
     Validate a set code via Scryfall and add it to the database.
 
     Args:
         set_code: MTG set code (e.g. "FDN", "MKM").
         fetch_cards: If True, also fetch cards from Scryfall and ratings from 17lands.
+        parent_code: Optional parent set code (e.g. "SOS" for the bonus sheet "SOA").
+            The parent must already exist in the database.
     """
     set_code = set_code.upper()
+    parent_code = parent_code.upper() if parent_code else None
+
+    if parent_code and parent_code == set_code:
+        logger.error("Parent set code '%s' cannot equal the set code itself.", parent_code)
+        sys.exit(1)
+
     scryfall = ScryfallParser()
 
     try:
@@ -55,10 +70,29 @@ async def add_set(set_code: str, *, fetch_cards: bool = True) -> None:
         # 2. Add set to database
         async with get_session() as session:
             set_repo = SetRepository(session)
+
+            # Validate parent exists in DB before creating/updating the child.
+            if parent_code:
+                parent_set = await set_repo.get_by_code(parent_code)
+                if parent_set is None:
+                    logger.error(
+                        "Parent set '%s' not found in database. "
+                        "Add the parent first: python -m scripts.add_set %s",
+                        parent_code,
+                        parent_code,
+                    )
+                    sys.exit(1)
+
             existing = await set_repo.get_by_code(set_code)
 
             if existing:
                 logger.info("Set '%s' already exists in database (id=%d).", set_code, existing.id)
+                if parent_code and existing.parent_set_code != parent_code:
+                    existing.parent_set_code = parent_code
+                    await session.flush()
+                    logger.info("Linked '%s' → parent '%s'.", set_code, parent_code)
+                elif parent_code:
+                    logger.info("'%s' already linked to parent '%s'.", set_code, parent_code)
             else:
                 from src.db.models import Set as SetModel
 
@@ -66,10 +100,13 @@ async def add_set(set_code: str, *, fetch_cards: bool = True) -> None:
                     code=set_info.code,
                     name=set_info.name,
                     release_date=set_info.release_date,
+                    parent_set_code=parent_code,
                 )
                 session.add(new_set)
                 await session.flush()
                 logger.info("Created set '%s' — %s (id=%d).", new_set.code, new_set.name, new_set.id)
+                if parent_code:
+                    logger.info("Linked '%s' → parent '%s'.", set_code, parent_code)
 
             if not fetch_cards:
                 logger.info("Skipping card/rating fetch (--no-fetch).")
@@ -151,6 +188,16 @@ def main() -> None:
         default=False,
         help="Only create the set record, skip fetching cards and ratings",
     )
+    parser.add_argument(
+        "--parent",
+        type=str,
+        default=None,
+        metavar="CODE",
+        help=(
+            "Link this set as a bonus-sheet child of the given parent set code "
+            "(e.g. --parent SOS for SOA). Parent must already exist in the database."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -162,7 +209,13 @@ def main() -> None:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    asyncio.run(add_set(args.set_code, fetch_cards=not args.no_fetch))
+    asyncio.run(
+        add_set(
+            args.set_code,
+            fetch_cards=not args.no_fetch,
+            parent_code=args.parent,
+        )
+    )
 
 
 if __name__ == "__main__":
