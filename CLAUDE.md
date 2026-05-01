@@ -120,7 +120,7 @@ Release workflow:
 
 1. For each new task, create a dev branch off `main` (e.g. `feat/<slug>`, `fix/<slug>`).
 2. Implement the change on the dev branch and open a PR **into `main`** for review. There is no PR into `stage`.
-3. After PR approval, deploy to staging by locally merging the dev branch into `stage` and pushing:
+3. Deploy to staging at any time (no approval required) by locally merging the dev branch into `stage` and pushing:
    ```bash
    git checkout stage
    git pull
@@ -128,7 +128,7 @@ Release workflow:
    git push origin stage          # → Railway auto-deploys to staging
    ```
 4. Test via the staging Telegram bot. Iterate on the dev branch and re-merge into `stage` as needed.
-5. Release: merge the PR into `main` → Railway auto-deploys to `production`.
+5. Release to production: merge the PR into `main` → Railway auto-deploys to `production`. Approval gates only the merge into `main`, not the staging deploy.
 
 Notes:
 - `stage` is a staging-only branch; it is never merged back into `main`. It accumulates dev-branch merges to mirror what is being tested.
