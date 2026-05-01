@@ -118,7 +118,7 @@ Be careful: `railway ssh ...` runs against whichever environment is currently li
 
 Release workflow:
 
-1. For each new task, create a dev branch off `stage` (e.g. `feat/<slug>`, `fix/<slug>`).
+1. For each new task, create a dev branch off `main` (e.g. `feat/<slug>`, `fix/<slug>`).
 2. Implement the change on the dev branch and open a PR into `stage` for review.
 3. Merge the dev branch into `stage` and push `stage` → Railway auto-deploys to `staging`.
 4. Open a PR from `stage` → `main` so the pending release is visible.

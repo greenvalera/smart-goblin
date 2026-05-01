@@ -87,20 +87,31 @@ class CardRepository:
 
     async def get_by_name(self, name: str, set_code: str) -> Optional[Card]:
         """
-        Get card by exact name and set code.
+        Get card by name and set code.
 
         Searches the requested set first; if not found, falls back to any
         bonus-sheet child sets (where ``sets.parent_set_code == set_code``).
         Lookup by a child code does NOT include the parent.
+
+        Also resolves front-face names of split / DFC / adventure / prepare
+        cards: Scryfall stores those under ``"Front // Back"``, but vision
+        and users typically pass only the front face name.
         """
         set_code_upper = set_code.upper()
-        priority = case((Set.code == set_code_upper, 0), else_=1)
+        name_match = or_(
+            Card.name == name,
+            Card.name.ilike(f"{name} // %"),
+        )
+        # Prefer exact-name + exact-set, then exact-name + child-set,
+        # then split-form + exact-set, then split-form + child-set.
+        name_priority = case((Card.name == name, 0), else_=1)
+        set_priority = case((Set.code == set_code_upper, 0), else_=1)
         result = await self.session.execute(
             select(Card)
             .join(Set)
             .where(
                 and_(
-                    Card.name == name,
+                    name_match,
                     or_(
                         Set.code == set_code_upper,
                         Set.parent_set_code == set_code_upper,
@@ -108,7 +119,7 @@ class CardRepository:
                 )
             )
             .options(selectinload(Card.ratings), joinedload(Card.set))
-            .order_by(priority)
+            .order_by(name_priority, set_priority)
             .limit(1)
         )
         return result.scalar_one_or_none()
@@ -131,12 +142,17 @@ class CardRepository:
         ``sets.parent_set_code == set_code``). Lookup by a child code does
         NOT include the parent.
 
+        For split / DFC / adventure / prepare layouts (stored as
+        ``"Front // Back"``) the front-face name is included as an extra
+        alias so vision and fuzzy matching can resolve a card even when
+        only the front face is recognized.
+
         Args:
             set_code: Set code (e.g., "ECL").
 
         Returns:
-            List of card name strings (parent + children, may contain
-            duplicates if the same name exists in both).
+            List of card name strings (parent + children, plus front-face
+            aliases for split-name cards; may contain duplicates).
         """
         set_code_upper = set_code.upper()
         result = await self.session.execute(
@@ -149,7 +165,15 @@ class CardRepository:
                 )
             )
         )
-        return list(result.scalars().all())
+        names = list(result.scalars().all())
+        expanded: list[str] = []
+        for n in names:
+            expanded.append(n)
+            if " // " in n:
+                front = n.split(" // ", 1)[0]
+                if front and front != n:
+                    expanded.append(front)
+        return expanded
 
     async def search_by_name(self, name_pattern: str, limit: int = 20) -> list[Card]:
         """
@@ -180,6 +204,10 @@ class CardRepository:
         ``sets.parent_set_code == set_code``). When the same name exists in
         both the parent and a child, the parent's card wins.
 
+        Also resolves front-face names of split / DFC / adventure / prepare
+        cards: a request for ``"Emeritus of Woe"`` matches a stored
+        ``"Emeritus of Woe // Demonic Tutor"``.
+
         Args:
             card_names: List of card names to fetch
             set_code: Set code (e.g., "MKM")
@@ -192,12 +220,13 @@ class CardRepository:
 
         set_code_upper = set_code.upper()
         priority = case((Set.code == set_code_upper, 0), else_=1)
+        split_clauses = [Card.name.ilike(f"{n} // %") for n in card_names]
         result = await self.session.execute(
             select(Card)
             .join(Set)
             .where(
                 and_(
-                    Card.name.in_(card_names),
+                    or_(Card.name.in_(card_names), *split_clauses),
                     or_(
                         Set.code == set_code_upper,
                         Set.parent_set_code == set_code_upper,
