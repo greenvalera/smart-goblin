@@ -208,9 +208,9 @@ class TestTC112EmptySideboardNoSection:
 
         prompt_text = captured_messages[0]["content"]
         # The prompt should indicate empty sideboard
-        assert "порожній" in prompt_text
+        assert "Sideboard: empty" in prompt_text
         # Should NOT have the "strong sideboard cards" section
-        assert "Сильні карти з sideboard для додавання" not in prompt_text
+        assert "Strong sideboard cards" not in prompt_text
 
     @pytest.mark.asyncio
     async def test_no_strong_sideboard_cards_found(self, advisor):
@@ -246,7 +246,7 @@ class TestTC113UkrainianNoJargon:
 
         prompt_text = captured_messages[0]["content"]
         # The prompt should explicitly request Ukrainian
-        assert "українською" in prompt_text
+        assert "Ukrainian" in prompt_text
 
     @pytest.mark.asyncio
     async def test_extra_context_in_ukrainian(self, advisor):
@@ -464,7 +464,7 @@ class TestP37SessionMode:
 
         prompt_text = captured_messages[0]["content"]
         # Session prompt should contain swap-related keywords
-        assert "заміни" in prompt_text.lower()
+        assert "swap" in prompt_text.lower()
         assert "sideboard" in prompt_text.lower()
         assert "OUT:" in prompt_text
         assert "IN:" in prompt_text
