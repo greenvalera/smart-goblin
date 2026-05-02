@@ -115,7 +115,18 @@ async def add_set(
             # 3. Fetch cards from Scryfall
             logger.info("Fetching cards for '%s' from Scryfall...", set_code)
             cards = await scryfall.fetch_set_cards(set_code)
+            main_set_card_names: set[str] = set()
             if cards:
+                # Include both the full Scryfall name and the front-face form
+                # for split / DFC / adventure / prepare layouts. 17lands returns
+                # those ratings under the front face only; passing both forms
+                # lets _canonicalize_dfc_names rewrite them to the full
+                # "Front // Back" name so upsert_ratings finds the card.
+                for c in cards:
+                    main_set_card_names.add(c.name)
+                    if " // " in c.name:
+                        main_set_card_names.add(c.name.split(" // ", 1)[0])
+
                 card_repo = CardRepository(session)
                 repo_cards = [
                     RepoCardData(
@@ -140,7 +151,10 @@ async def add_set(
             logger.info("Fetching ratings for '%s' from 17lands...", set_code)
             seventeen = SeventeenLandsParser()
             try:
-                ratings = await seventeen.fetch_ratings(set_code)
+                ratings = await seventeen.fetch_ratings(
+                    set_code,
+                    main_set_card_names=main_set_card_names or None,
+                )
                 if ratings:
                     card_repo = CardRepository(session)
                     repo_ratings = [

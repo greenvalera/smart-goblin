@@ -118,12 +118,21 @@ Be careful: `railway ssh ...` runs against whichever environment is currently li
 
 Release workflow:
 
-1. For each new task, create a dev branch off `stage` (e.g. `feat/<slug>`, `fix/<slug>`).
-2. Implement the change on the dev branch and open a PR into `stage` for review.
-3. Merge the dev branch into `stage` and push `stage` → Railway auto-deploys to `staging`.
-4. Open a PR from `stage` → `main` so the pending release is visible.
-5. Test via the staging Telegram bot. Iterate on the dev branch (or follow-up dev branches into `stage`) until green.
-6. Release: merge the `stage` → `main` PR → Railway auto-deploys to `production`.
+1. For each new task, create a dev branch off `main` (e.g. `feat/<slug>`, `fix/<slug>`).
+2. Implement the change on the dev branch and open a PR **into `main`** for review. There is no PR into `stage`.
+3. Deploy to staging at any time (no approval required) by locally merging the dev branch into `stage` and pushing:
+   ```bash
+   git checkout stage
+   git pull
+   git merge --no-ff fix/<slug>   # or feat/<slug>
+   git push origin stage          # → Railway auto-deploys to staging
+   ```
+4. Test via the staging Telegram bot. Iterate on the dev branch and re-merge into `stage` as needed.
+5. Release to production: merge the PR into `main` → Railway auto-deploys to `production`. Approval gates only the merge into `main`, not the staging deploy.
+
+Notes:
+- `stage` is a staging-only branch; it is never merged back into `main`. It accumulates dev-branch merges to mirror what is being tested.
+- If `stage` has drifted (old merges from abandoned dev branches), it is fine to occasionally `git reset --hard main` it locally and push-force, since nothing depends on its history.
 
 Setting / rotating the staging Telegram token (do this once after creating a bot in @BotFather):
 
