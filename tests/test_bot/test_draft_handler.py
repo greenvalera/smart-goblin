@@ -401,12 +401,12 @@ class TestTC_P3_6_7_EmptyMainDeck:
 class TestTC_P4_3_9_SystemPromptContent:
     def test_system_prompt_contains_ukrainian_instruction(self):
         """TC-P4-3.9: DRAFT_CHAT_SYSTEM_PROMPT contains Ukrainian language instruction."""
-        assert "українською" in DRAFT_CHAT_SYSTEM_PROMPT.lower()
+        assert "ukrainian" in DRAFT_CHAT_SYSTEM_PROMPT.lower()
 
     def test_system_prompt_contains_deck_context_instruction(self):
         """TC-P4-3.9: DRAFT_CHAT_SYSTEM_PROMPT instructs to know the deck."""
         prompt_lower = DRAFT_CHAT_SYSTEM_PROMPT.lower()
-        assert "колод" in prompt_lower  # колоду / колоди / колоду
+        assert "deck" in prompt_lower
 
 
 # ---------------------------------------------------------------------------

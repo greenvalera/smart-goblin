@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from openai import APIConnectionError, APIStatusError, APITimeoutError
 
+from src.config import get_settings
 from src.llm.client import LLMClient
 from src.llm.exceptions import (
     LLMAPIError,
@@ -37,8 +38,13 @@ def mock_env():
         "OPENAI_API_KEY": "sk-test-key",
         "DATABASE_URL": "postgresql+asyncpg://user:pass@localhost:5432/testdb",
     }
+    # get_settings() is @lru_cache'd: a Settings instance built earlier in the
+    # test session (or from .env) would otherwise leak the real OPENAI_API_KEY
+    # into LLMClient and bypass these mocked env vars.
+    get_settings.cache_clear()
     with mock.patch.dict(os.environ, env_vars, clear=True):
         yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture
@@ -642,7 +648,7 @@ class TestPromptBuilders:
 
         prompt = build_advice_prompt(main_deck, sideboard, analysis)
 
-        assert "Sideboard: порожній" in prompt
+        assert "Sideboard: empty" in prompt
 
     def test_build_vision_prompt_returns_base_prompt(self):
         """build_vision_prompt should return recognition prompt."""
