@@ -148,16 +148,46 @@ function Invoke-StagePush {
     return $true
 }
 
+function Wait-DeploymentRegistered {
+    param(
+        [string]$ExpectedCommitHash,
+        [int]$TimeoutSeconds = 60
+    )
+
+    $shortSha = $ExpectedCommitHash.Substring(0, 7)
+    Write-Info "Locating Railway deployment for commit ${shortSha}..."
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+    while ((Get-Date) -lt $deadline) {
+        $json = & railway deployment list --json --limit 5
+        if ($LASTEXITCODE -eq 0 -and $json) {
+            try {
+                $deployments = $json | ConvertFrom-Json
+                $match = $deployments | Where-Object { $_.meta.commitHash -eq $ExpectedCommitHash } | Select-Object -First 1
+                if ($match) {
+                    Write-Info "Found deployment $($match.id) (status: $($match.status))"
+                    return $match.id
+                }
+            }
+            catch {
+                Write-Warn "Failed to parse deployment list JSON: $_"
+            }
+        }
+        Start-Sleep -Seconds 3
+    }
+
+    Write-Err "Railway did not register a deployment for commit ${ExpectedCommitHash} within ${TimeoutSeconds}s"
+    return $null
+}
+
 function Wait-BuildComplete {
-    param([int]$TimeoutMinutes)
+    param([int]$TimeoutMinutes, [string]$DeploymentId)
 
-    Write-Info "Waiting 10s for Railway to register the new deployment..."
-    Start-Sleep -Seconds 10
+    Write-Info "Streaming build logs for deployment ${DeploymentId} (timeout ${TimeoutMinutes}m)..."
 
-    Write-Info "Streaming build logs (will exit when build finishes; timeout ${TimeoutMinutes}m)..."
-
-    $job = Start-Job -ScriptBlock {
-        & railway logs --build 2>&1
+    $job = Start-Job -ArgumentList $DeploymentId -ScriptBlock {
+        param($id)
+        & railway logs --build $id 2>&1
     }
 
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
@@ -189,18 +219,18 @@ function Wait-BuildComplete {
 }
 
 function Wait-AppStartup {
-    param([int]$TimeoutSeconds)
+    param([int]$TimeoutSeconds, [string]$DeploymentId)
 
     Write-Info "Waiting 5s for app container to start..."
     Start-Sleep -Seconds 5
 
-    Write-Info "Polling runtime logs for up to ${TimeoutSeconds}s, looking for: 'Bot is now polling for updates'..."
+    Write-Info "Polling runtime logs for deployment ${DeploymentId} (up to ${TimeoutSeconds}s), looking for: 'Bot is now polling for updates'..."
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $found = $false
 
     while ((Get-Date) -lt $deadline) {
-        $output = & railway logs -n 200
+        $output = & railway logs $DeploymentId -n 200
         if ($output) {
             foreach ($line in $output) {
                 if ($line -match 'Bot is now polling for updates') {
@@ -240,9 +270,14 @@ else {
 
 if (-not (Switch-RailwayToStaging)) { exit 1 }
 if (-not (Invoke-StagePush -Branch $branch)) { exit 1 }
-if (-not (Wait-BuildComplete -TimeoutMinutes $TimeoutMinutes)) { exit 1 }
 
-if (Wait-AppStartup -TimeoutSeconds $StartupTimeoutSeconds) {
+$ourSha = (& git rev-parse HEAD).Trim()
+$deploymentId = Wait-DeploymentRegistered -ExpectedCommitHash $ourSha
+if (-not $deploymentId) { exit 1 }
+
+if (-not (Wait-BuildComplete -TimeoutMinutes $TimeoutMinutes -DeploymentId $deploymentId)) { exit 1 }
+
+if (Wait-AppStartup -TimeoutSeconds $StartupTimeoutSeconds -DeploymentId $deploymentId) {
     Write-Success "Staging deploy successful - bot is polling for updates"
     exit 0
 }
