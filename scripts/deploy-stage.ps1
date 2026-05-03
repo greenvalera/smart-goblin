@@ -66,7 +66,7 @@ function Test-Prerequisites {
         }
     }
 
-    & railway status *>&1 | Out-Null
+    & railway status | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Err "Railway CLI is not linked to a project. Run: railway link"
         return $false
@@ -103,7 +103,7 @@ function Test-SafetyGuards {
     }
 
     Write-Info "Fetching origin/$Branch to verify HEAD is pushed..."
-    & git fetch origin $Branch 2>&1 | Out-Null
+    & git fetch --quiet origin $Branch
     if ($LASTEXITCODE -ne 0) {
         Write-Err "Branch '$Branch' has no remote at origin. Push it first: git push -u origin $Branch"
         return $false
@@ -138,7 +138,7 @@ function Invoke-StagePush {
     param([string]$Branch)
 
     Write-Info "Force-pushing $Branch -> origin/stage (--force-with-lease)..."
-    & git fetch origin stage 2>&1 | Out-Null
+    & git fetch --quiet origin stage
     & git push origin "${Branch}:stage" --force-with-lease
     if ($LASTEXITCODE -ne 0) {
         Write-Err "git push failed"
