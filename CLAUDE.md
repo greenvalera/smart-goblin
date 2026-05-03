@@ -124,14 +124,14 @@ Release workflow:
 
 1. For each new task, create a dev branch off `main` (e.g. `feat/<slug>`, `fix/<slug>`).
 2. Implement the change on the dev branch and open a PR **into `main`** for review. There is no PR into `stage`.
-3. Deploy to staging at any time (no approval required) by running the deploy script from the dev branch:
+3. Deploy to staging by running the deploy script from the dev branch:
    ```bash
    .\scripts\deploy-stage.ps1     # Windows
-   ./scripts/deploy-stage.sh      # Linux/Mac
+   ./scripts/deploy-stage.sh      # Linux/Mac (requires jq)
    ```
-   The script force-pushes the current branch to `origin/stage` (`--force-with-lease`), switches the Railway link to `staging` + `smart-goblin`, streams the build logs, and waits for the bot's startup signal in runtime logs. Pre-flight guards block: `HEAD == main`, dirty working tree, or local commits not yet on `origin/<branch>` (bypass with `-Force` / `--force`).
+   The script force-pushes the current branch to `origin/stage`, switches the Railway link to `staging` + `smart-goblin`, polls `railway deployment list --json` until the deployment reaches a terminal state (SUCCESS → proceed; FAILED/CRASHED → print build logs and exit 1), then waits for the bot's startup signal. Pre-flight guards block: `HEAD == main`, dirty working tree, or local commits not yet on `origin/<branch>` (bypass with `-Force` / `--force`).
 4. Test via the staging Telegram bot. Iterate on the dev branch (commit + push) and re-run the script as needed.
-5. Release to production: merge the PR into `main` → Railway auto-deploys to `production`. Approval gates only the merge into `main`, not the staging deploy.
+5. **Merge to `main` only after staging test passes.** Merging the PR into `main` triggers auto-deploy to production.
 
 Notes:
 - `stage` is a pointer branch — it has no independent history. Every staging deploy force-overwrites it with whatever dev branch is currently being tested.
