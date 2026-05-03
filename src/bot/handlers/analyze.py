@@ -61,8 +61,12 @@ def _card_to_card_info(card: Card) -> CardInfo:
         win_rate = best.win_rate
         games_played = best.games_played
 
+    # For DFC/split cards stored as "Front // Back", use only the front face so
+    # the name matches what the vision recognizer returns (front face only).
+    display_name = card.name.split(" // ")[0] if " // " in card.name else card.name
+
     return CardInfo(
-        name=card.name,
+        name=display_name,
         mana_cost=card.mana_cost,
         cmc=card.cmc,
         colors=list(card.colors) if card.colors else None,
