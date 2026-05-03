@@ -194,34 +194,24 @@ function Wait-AppStartup {
     Write-Info "Waiting 5s for app container to start..."
     Start-Sleep -Seconds 5
 
-    Write-Info "Tailing runtime logs for up to ${TimeoutSeconds}s, looking for: 'Bot is now polling for updates'..."
-
-    $job = Start-Job -ScriptBlock {
-        & railway logs 2>&1
-    }
+    Write-Info "Polling runtime logs for up to ${TimeoutSeconds}s, looking for: 'Bot is now polling for updates'..."
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $found = $false
 
-    try {
-        while ((Get-Date) -lt $deadline -and $job.State -eq 'Running') {
-            $chunk = Receive-Job -Job $job -ErrorAction SilentlyContinue
-            if ($chunk) {
-                foreach ($line in $chunk) {
+    while ((Get-Date) -lt $deadline) {
+        $output = & railway logs -n 200
+        if ($output) {
+            foreach ($line in $output) {
+                if ($line -match 'Bot is now polling for updates') {
                     Write-Host $line
-                    if ($line -match 'Bot is now polling for updates') {
-                        $found = $true
-                        break
-                    }
+                    $found = $true
+                    break
                 }
             }
-            if ($found) { break }
-            Start-Sleep -Milliseconds 500
         }
-    }
-    finally {
-        Stop-Job -Job $job -ErrorAction SilentlyContinue
-        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        if ($found) { break }
+        Start-Sleep -Seconds 5
     }
 
     return $found
