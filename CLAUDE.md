@@ -51,6 +51,10 @@ powershell.exe -Command "cd C:\dev\smart-goblin; .\.venv\Scripts\python.exe -m p
 # Dev database management (Linux/Mac)
 ./scripts/dev-db.sh start
 
+# Deploy current branch to staging (force-push to `stage` + verify build)
+.\scripts\deploy-stage.ps1                    # Windows
+./scripts/deploy-stage.sh                     # Linux/Mac
+
 # Database migrations
 powershell.exe -Command "cd C:\dev\smart-goblin; .\.venv\Scripts\python.exe -m alembic upgrade head"
 powershell.exe -Command "cd C:\dev\smart-goblin; .\.venv\Scripts\python.exe -m alembic revision --autogenerate -m 'description'"
@@ -120,19 +124,18 @@ Release workflow:
 
 1. For each new task, create a dev branch off `main` (e.g. `feat/<slug>`, `fix/<slug>`).
 2. Implement the change on the dev branch and open a PR **into `main`** for review. There is no PR into `stage`.
-3. Deploy to staging at any time (no approval required) by locally merging the dev branch into `stage` and pushing:
+3. Deploy to staging at any time (no approval required) by running the deploy script from the dev branch:
    ```bash
-   git checkout stage
-   git pull
-   git merge --no-ff fix/<slug>   # or feat/<slug>
-   git push origin stage          # → Railway auto-deploys to staging
+   .\scripts\deploy-stage.ps1     # Windows
+   ./scripts/deploy-stage.sh      # Linux/Mac
    ```
-4. Test via the staging Telegram bot. Iterate on the dev branch and re-merge into `stage` as needed.
+   The script force-pushes the current branch to `origin/stage` (`--force-with-lease`), switches the Railway link to `staging` + `smart-goblin`, streams the build logs, and waits for the bot's startup signal in runtime logs. Pre-flight guards block: `HEAD == main`, dirty working tree, or local commits not yet on `origin/<branch>` (bypass with `-Force` / `--force`).
+4. Test via the staging Telegram bot. Iterate on the dev branch (commit + push) and re-run the script as needed.
 5. Release to production: merge the PR into `main` → Railway auto-deploys to `production`. Approval gates only the merge into `main`, not the staging deploy.
 
 Notes:
-- `stage` is a staging-only branch; it is never merged back into `main`. It accumulates dev-branch merges to mirror what is being tested.
-- If `stage` has drifted (old merges from abandoned dev branches), it is fine to occasionally `git reset --hard main` it locally and push-force, since nothing depends on its history.
+- `stage` is a pointer branch — it has no independent history. Every staging deploy force-overwrites it with whatever dev branch is currently being tested.
+- Because the script enforces `HEAD == origin/<branch>`, `stage` always points at a commit that exists on a real dev branch — no orphan code.
 
 Setting / rotating the staging Telegram token (do this once after creating a bot in @BotFather):
 
