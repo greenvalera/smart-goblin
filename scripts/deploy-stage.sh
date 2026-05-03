@@ -58,7 +58,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 check_prerequisites() {
-    for tool in git railway timeout; do
+    for tool in git railway jq; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             error "$tool not found in PATH"
             exit 1
@@ -121,24 +121,59 @@ push_to_stage() {
 }
 
 wait_build_complete() {
-    info "Waiting 10s for Railway to register the new deployment..."
-    sleep 10
-
+    local commit_sha="$1"
     local timeout_secs=$((TIMEOUT_MINUTES * 60))
-    info "Streaming build logs (will exit when build finishes; timeout ${TIMEOUT_MINUTES}m)..."
 
-    local rc=0
-    timeout "$timeout_secs" railway logs --build || rc=$?
+    info "Waiting 8s for Railway to register the new deployment..."
+    sleep 8
 
-    if [[ $rc -eq 124 ]]; then
-        error "Build did not finish within ${TIMEOUT_MINUTES}m"
-        exit 1
-    elif [[ $rc -ne 0 ]]; then
-        error "Build failed (exit code $rc) — see logs above"
-        exit 1
+    info "Looking up deployment for commit ${commit_sha:0:7}..."
+    local deployment_id
+    deployment_id=$(railway deployment list --json 2>/dev/null | \
+        jq -r --arg sha "$commit_sha" '.[] | select(.meta.commitHash == $sha) | .id' | head -1)
+
+    if [[ -z "$deployment_id" ]]; then
+        deployment_id=$(railway deployment list --json 2>/dev/null | jq -r '.[0].id')
+        warn "No deployment matched commit hash — using latest: $deployment_id"
+    else
+        info "Found deployment: $deployment_id"
     fi
 
-    success "Build phase finished"
+    info "Polling deployment status (timeout ${TIMEOUT_MINUTES}m)..."
+    local start_time
+    start_time=$(date +%s)
+
+    while true; do
+        local elapsed=$(( $(date +%s) - start_time ))
+        if [[ $elapsed -ge $timeout_secs ]]; then
+            local last_status
+            last_status=$(railway deployment list --json 2>/dev/null | \
+                jq -r --arg id "$deployment_id" '.[] | select(.id == $id) | .status' | head -1)
+            error "Timed out after ${TIMEOUT_MINUTES}m (last status: $last_status)"
+            exit 1
+        fi
+
+        local status
+        status=$(railway deployment list --json 2>/dev/null | \
+            jq -r --arg id "$deployment_id" '.[] | select(.id == $id) | .status' | head -1)
+
+        info "[$((elapsed))s] Status: ${status:-unknown}"
+
+        case "$status" in
+            SUCCESS)
+                success "Build phase finished (status: SUCCESS)"
+                return 0
+                ;;
+            FAILED|CRASHED|REMOVED)
+                error "Deployment ended with status: $status"
+                info "Last 100 lines of build logs:"
+                railway logs --build 2>&1 | tail -100 || true
+                exit 1
+                ;;
+        esac
+
+        sleep 5
+    done
 }
 
 wait_app_startup() {
@@ -182,9 +217,11 @@ else
     warn "Skipping safety guards (--force)"
 fi
 
+COMMIT_SHA="$(git rev-parse HEAD)"
+
 switch_railway_to_staging
 push_to_stage "$BRANCH"
-wait_build_complete
+wait_build_complete "$COMMIT_SHA"
 
 if wait_app_startup; then
     success "Staging deploy successful — bot is polling for updates"
