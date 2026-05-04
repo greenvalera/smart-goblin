@@ -232,6 +232,7 @@ class SeventeenLandsParser:
             format=format_name,
             low_confidence=low_confidence,
             grade=None,
+            url=card_data.get("url"),
         )
 
     def _apply_grades(
