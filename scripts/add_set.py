@@ -14,8 +14,10 @@ Usage::
 import argparse
 import asyncio
 import logging
+import re
 import sys
 from typing import Optional
+from uuid import UUID
 
 from src.db.repository import CardRepository, SetRepository
 from src.db.repository import CardData as RepoCardData, RatingData as RepoRatingData
@@ -25,6 +27,10 @@ from src.parsers.scryfall import ScryfallParser
 from src.parsers.seventeen_lands import SeventeenLandsParser
 
 logger = logging.getLogger(__name__)
+
+_SCRYFALL_UUID_RE = re.compile(
+    r"/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\."
+)
 
 
 async def add_set(
@@ -157,6 +163,49 @@ async def add_set(
                 )
                 if ratings:
                     card_repo = CardRepository(session)
+
+                    # Seed bonus/Special Guest cards not in the main Scryfall set
+                    if main_set_card_names:
+                        bonus_cards: list[RepoCardData] = []
+                        seen_bonus_names: set[str] = set()
+                        for r in ratings:
+                            if r.card_name in main_set_card_names:
+                                continue
+                            if r.card_name in seen_bonus_names or not r.url:
+                                continue
+                            m = _SCRYFALL_UUID_RE.search(r.url)
+                            if not m:
+                                continue
+                            try:
+                                scryfall_id = UUID(m.group(1))
+                            except ValueError:
+                                continue
+                            card_data = await scryfall.fetch_card_by_id(scryfall_id)
+                            if card_data is None:
+                                logger.warning(
+                                    "Could not fetch Scryfall data for bonus card %s (id=%s)",
+                                    r.card_name, scryfall_id,
+                                )
+                                continue
+                            seen_bonus_names.add(r.card_name)
+                            bonus_cards.append(RepoCardData(
+                                name=card_data.name,
+                                set_code=set_code,
+                                scryfall_id=card_data.scryfall_id,
+                                mana_cost=card_data.mana_cost,
+                                cmc=card_data.cmc,
+                                colors=card_data.colors,
+                                type_line=card_data.type_line,
+                                rarity=card_data.rarity,
+                                image_uri=card_data.image_uri,
+                            ))
+                        if bonus_cards:
+                            seeded = await card_repo.upsert_cards(bonus_cards)
+                            logger.info(
+                                "Seeded %d bonus/Special Guest card(s) for '%s'.",
+                                seeded, set_code,
+                            )
+
                     repo_ratings = [
                         RepoRatingData(
                             card_name=r.card_name,

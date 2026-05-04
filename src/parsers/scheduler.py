@@ -10,7 +10,9 @@ Can also be run manually::
 
 import asyncio
 import logging
+import re
 import sys
+from uuid import UUID
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -29,6 +31,12 @@ from src.parsers.seventeen_lands import SeventeenLandsParser
 from src.db.repository import CardData as RepoCardData, RatingData as RepoRatingData
 
 logger = logging.getLogger(__name__)
+
+# Matches the Scryfall UUID embedded in 17lands image URLs, e.g.:
+# https://cards.scryfall.io/large/front/a/b/<uuid>.jpg?version=...
+_SCRYFALL_UUID_RE = re.compile(
+    r"/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\."
+)
 
 
 async def run_updates() -> list[ValidationReport]:
@@ -125,6 +133,54 @@ async def run_updates() -> list[ValidationReport]:
                         main_set_card_names=main_set_card_names or None,
                     )
                     if ratings:
+                        # --- Seed bonus/Special Guest cards ---
+                        # 17lands mixes bonus-sheet cards (e.g. Special Guests in SOS)
+                        # into the ratings feed. These have a different Scryfall set code
+                        # and were never seeded by the Scryfall pass above, so upsert_ratings
+                        # would silently skip them. We identify them as cards whose name is
+                        # absent from main_set_card_names and fetch their metadata by the
+                        # Scryfall UUID embedded in the 17lands image URL.
+                        if main_set_card_names:
+                            bonus_cards: list[RepoCardData] = []
+                            seen_bonus_names: set[str] = set()
+                            for r in ratings:
+                                if r.card_name in main_set_card_names:
+                                    continue
+                                if r.card_name in seen_bonus_names or not r.url:
+                                    continue
+                                m = _SCRYFALL_UUID_RE.search(r.url)
+                                if not m:
+                                    continue
+                                try:
+                                    scryfall_id = UUID(m.group(1))
+                                except ValueError:
+                                    continue
+                                card_data = await scryfall.fetch_card_by_id(scryfall_id)
+                                if card_data is None:
+                                    logger.warning(
+                                        "Could not fetch Scryfall data for bonus card %s (id=%s)",
+                                        r.card_name, scryfall_id,
+                                    )
+                                    continue
+                                seen_bonus_names.add(r.card_name)
+                                bonus_cards.append(RepoCardData(
+                                    name=card_data.name,
+                                    set_code=set_code,
+                                    scryfall_id=card_data.scryfall_id,
+                                    mana_cost=card_data.mana_cost,
+                                    cmc=card_data.cmc,
+                                    colors=card_data.colors,
+                                    type_line=card_data.type_line,
+                                    rarity=card_data.rarity,
+                                    image_uri=card_data.image_uri,
+                                ))
+                            if bonus_cards:
+                                seeded = await card_repo.upsert_cards(bonus_cards)
+                                logger.info(
+                                    "Seeded %d bonus/Special Guest card(s) for %s.",
+                                    seeded, set_code,
+                                )
+
                         repo_ratings = [
                             RepoRatingData(
                                 card_name=r.card_name,

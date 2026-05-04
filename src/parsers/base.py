@@ -47,6 +47,7 @@ class RatingData:
     format: Optional[str] = None
     low_confidence: bool = False
     grade: Optional[str] = None  # Letter grade from 17lands (A+, A, A-, B+, etc.)
+    url: Optional[str] = None  # Scryfall image URL (used to identify bonus-sheet cards)
 
 
 class BaseParser(ABC):
