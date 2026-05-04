@@ -163,10 +163,15 @@ async def run_updates() -> list[ValidationReport]:
                                     )
                                     continue
                                 seen_bonus_names.add(r.card_name)
+                                # scryfall_id is intentionally None: the same
+                                # SPG printing can appear in multiple formats
+                                # (ECL, SOS, …) and cards.scryfall_id must be
+                                # globally unique. image_uri still carries the
+                                # URL so card images display correctly.
                                 bonus_cards.append(RepoCardData(
                                     name=card_data.name,
                                     set_code=set_code,
-                                    scryfall_id=card_data.scryfall_id,
+                                    scryfall_id=None,
                                     mana_cost=card_data.mana_cost,
                                     cmc=card_data.cmc,
                                     colors=card_data.colors,
