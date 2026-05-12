@@ -197,6 +197,62 @@ Rules:
 Respond ONLY with the JSON object."""
 
 
+SINGLE_CARD_RECOGNITION_PROMPT = """You are an expert Magic: The Gathering card recognition system.
+You are analyzing a close-up photo of a single physical MTG card.
+
+Your task is to identify:
+1. The card name (from the title bar at the top)
+2. The set code (from the bottom information line, e.g. "ECL · EN")
+3. The card finish (foil vs. nonfoil)
+4. The card frame variant
+
+Card Finish Detection:
+- "foil": The card surface shows holographic shimmer, rainbow reflections across the art
+  or card frame, shiny metallic mana symbols, or a prismatic/iridescent sheen. The art
+  may look slightly washed-out or have a colour-shifted glow.
+- "nonfoil": The card has a flat, matte surface with no reflective shimmer.
+- null: You cannot determine the finish from this photo (e.g. lighting is too dark or
+  the angle makes it impossible to tell).
+
+Card Frame Variant Detection:
+- "standard": Normal Magic frame style — the standard black/white/gold frame with title
+  bar, art box, type line, and text box in the usual proportions. Most cards are standard.
+- "showcase": A special illustrated frame with unique border treatment — often anime-style
+  art, full-art style, or custom frames unique to a specific set's showcase treatment.
+  The border decoration is noticeably different from the standard frame.
+- "extended_art": The art extends or "bleeds" significantly into what would normally be
+  the border area. The side borders are minimal or absent, but a normal frame structure
+  (title bar, type line, text box) is still present.
+- "borderless": Completely frameless — the art is full-bleed with no visible frame border
+  at all. The card name and text may be overlaid directly on the art.
+- "retro": Old-school Magic frame style from pre-2003 (the classic frame with a darker,
+  more decorative border, the set symbol on the right side of the art, and the characteristic
+  tan/grey text box). This also includes "retro frame" reprints in modern sets.
+- null: You cannot determine the variant (e.g. card is partially obscured or angle is
+  too extreme).
+
+Return your response as a JSON object:
+{
+    "main_deck": ["Card Name"],
+    "sideboard": [],
+    "detected_set": "SET_CODE",
+    "layout_detected": "physical_cards",
+    "lands_visible": false,
+    "finish": "foil" | "nonfoil" | null,
+    "variant": "standard" | "showcase" | "extended_art" | "borderless" | "retro" | null
+}
+
+Rules:
+- main_deck must contain exactly one card name (the card shown in the photo)
+- Use EXACT English card name as printed on the card
+- Use null for detected_set if the set code is not readable
+- Set finish to null only if you genuinely cannot determine it
+- Set variant to null only if the card is too obscured to assess the frame style
+- When in doubt between "standard" and another variant, prefer "standard"
+
+Respond ONLY with the JSON object."""
+
+
 _PROMPTS = {
     LayoutType.ARENA_SCREENSHOT: ARENA_RECOGNITION_PROMPT,
     LayoutType.PHYSICAL_CARDS: PHYSICAL_RECOGNITION_PROMPT,
@@ -208,6 +264,7 @@ def build_recognition_prompt(
     layout_type: LayoutType = LayoutType.UNKNOWN,
     set_hint: str | None = None,
     known_cards: list[str] | None = None,
+    single_card: bool = False,
 ) -> str:
     """
     Build the recognition prompt based on layout type.
@@ -218,11 +275,16 @@ def build_recognition_prompt(
         known_cards: Optional list of valid card names for this set.
             When provided, the prompt constrains GPT-4o to only return
             names from this list, significantly reducing hallucinations.
+        single_card: When True, use the single-card prompt that also
+            extracts finish (foil/nonfoil) and frame variant.
 
     Returns:
         The full prompt string for card recognition.
     """
-    prompt = _PROMPTS[layout_type]
+    if single_card:
+        prompt = SINGLE_CARD_RECOGNITION_PROMPT
+    else:
+        prompt = _PROMPTS[layout_type]
 
     if set_hint:
         prompt += (
