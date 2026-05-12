@@ -232,6 +232,13 @@ async def _handle_single_card(
     async with get_session() as session:
         card_repo = CardRepository(session)
         db_card = await card_repo.get_by_name(card_name, set_code)
+        found_via_fallback = False
+
+        if db_card is None:
+            # Fallback: search across ALL sets in the database
+            db_card = await card_repo.get_by_name(card_name, set_code=None)
+            if db_card is not None:
+                found_via_fallback = True
 
     if not db_card:
         await processing_msg.edit_text(
@@ -243,6 +250,12 @@ async def _handle_single_card(
 
     card_info = _card_to_card_info(db_card)
     grade = rating_to_grade(card_info.rating)
+
+    # When card was found in a different set, show which set it came from
+    actual_set_code = db_card.set.code if found_via_fallback else set_code
+    display_name = (
+        f"{card_info.name} ({actual_set_code})" if found_via_fallback else card_info.name
+    )
 
     stat_parts = [f"Грейд: {grade}"]
     if card_info.win_rate is not None:
@@ -257,13 +270,13 @@ async def _handle_single_card(
         detail_parts.append(f"Тип: {card_info.type_line}")
 
     lines = [
-        f"🃏 *{card_info.name}*",
+        f"🃏 *{display_name}*",
         "📊 " + " | ".join(stat_parts),
     ]
     if detail_parts:
         lines.append("🎨 " + " | ".join(detail_parts))
 
-    keyboard = build_single_card_keyboard(card_info.name, set_code)
+    keyboard = build_single_card_keyboard(card_info.name, actual_set_code)
     await processing_msg.edit_text(
         "\n".join(lines), parse_mode="Markdown", reply_markup=keyboard
     )
