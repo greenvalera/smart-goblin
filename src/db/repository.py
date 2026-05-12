@@ -85,26 +85,43 @@ class CardRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_by_name(self, name: str, set_code: str) -> Optional[Card]:
+    async def get_by_name(self, name: str, set_code: Optional[str]) -> Optional[Card]:
         """
-        Get card by name and set code.
+        Get card by name and optional set code.
 
-        Searches the requested set first; if not found, falls back to any
-        bonus-sheet child sets (where ``sets.parent_set_code == set_code``).
-        Lookup by a child code does NOT include the parent.
+        When ``set_code`` is provided:
+          Searches the requested set first; if not found, falls back to any
+          bonus-sheet child sets (where ``sets.parent_set_code == set_code``).
+          Lookup by a child code does NOT include the parent.
+
+        When ``set_code`` is ``None``:
+          Searches across ALL sets in the database (global fallback).
 
         Also resolves front-face names of split / DFC / adventure / prepare
         cards: Scryfall stores those under ``"Front // Back"``, but vision
         and users typically pass only the front face name.
         """
-        set_code_upper = set_code.upper()
         name_match = or_(
             Card.name == name,
             Card.name.ilike(f"{name} // %"),
         )
+        name_priority = case((Card.name == name, 0), else_=1)
+
+        if set_code is None:
+            # Global search — no set filter
+            result = await self.session.execute(
+                select(Card)
+                .join(Set)
+                .where(name_match)
+                .options(selectinload(Card.ratings), joinedload(Card.set))
+                .order_by(name_priority)
+                .limit(1)
+            )
+            return result.scalar_one_or_none()
+
+        set_code_upper = set_code.upper()
         # Prefer exact-name + exact-set, then exact-name + child-set,
         # then split-form + exact-set, then split-form + child-set.
-        name_priority = case((Card.name == name, 0), else_=1)
         set_priority = case((Set.code == set_code_upper, 0), else_=1)
         result = await self.session.execute(
             select(Card)
