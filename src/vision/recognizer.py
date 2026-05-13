@@ -8,6 +8,7 @@ and post-processing of recognized card lists.
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import Optional
 
 from src.llm.client import LLMClient, get_llm_client
 from src.vision.layouts import LayoutType, detect_layout, parse_layout_from_response
@@ -25,6 +26,12 @@ class RecognitionResult:
     detected_set: str | None = None
     layout_detected: LayoutType = LayoutType.UNKNOWN
     lands_visible: bool | None = None
+    finish: Optional[str] = None
+    """Card finish: 'foil', 'nonfoil', or None (uncertain). Only populated for
+    single-card recognition; always None for deck/batch recognition."""
+    variant: Optional[str] = None
+    """Card frame variant: 'standard', 'showcase', 'extended_art', 'borderless',
+    'retro', or None (uncertain). Only populated for single-card recognition."""
 
 
 class CardRecognizer:
@@ -57,6 +64,7 @@ class CardRecognizer:
         layout_hint: LayoutType | None = None,
         set_hint: str | None = None,
         known_cards: list[str] | None = None,
+        single_card: bool = False,
     ) -> RecognitionResult:
         """
         Recognize MTG cards from an image.
@@ -73,19 +81,26 @@ class CardRecognizer:
             known_cards: Optional list of valid card names for this set.
                 When provided, the prompt constrains the model to only return
                 names from this list.
+            single_card: When True, use the single-card prompt that also extracts
+                finish (foil/nonfoil) and frame variant alongside the card name.
 
         Returns:
-            RecognitionResult with main_deck, sideboard, detected_set, and layout.
+            RecognitionResult with main_deck, sideboard, detected_set, layout,
+            and (for single_card=True) finish and variant.
         """
         layout_type = layout_hint or LayoutType.UNKNOWN
         prompt = build_recognition_prompt(
-            layout_type=layout_type, set_hint=set_hint, known_cards=known_cards
+            layout_type=layout_type,
+            set_hint=set_hint,
+            known_cards=known_cards,
+            single_card=single_card,
         )
 
         logger.info(
-            "Recognizing cards (layout_hint=%s, set_hint=%s, known_cards=%s)",
+            "Recognizing cards (layout_hint=%s, set_hint=%s, known_cards=%s, single_card=%s)",
             layout_hint, set_hint,
             f"yes ({len(known_cards)})" if known_cards else "no",
+            single_card,
         )
 
         raw_result = await self.llm_client.call_vision(image, prompt)
@@ -116,6 +131,9 @@ class CardRecognizer:
         """
         return await detect_layout(image, self.llm_client)
 
+    _VALID_FINISHES = frozenset({"foil", "nonfoil"})
+    _VALID_VARIANTS = frozenset({"standard", "showcase", "extended_art", "borderless", "retro"})
+
     def _build_result(self, raw: dict) -> RecognitionResult:
         """
         Build a RecognitionResult from the raw LLM response.
@@ -128,12 +146,20 @@ class CardRecognizer:
         """
         layout = parse_layout_from_response(raw)
 
+        raw_finish = raw.get("finish")
+        finish = raw_finish if raw_finish in self._VALID_FINISHES else None
+
+        raw_variant = raw.get("variant")
+        variant = raw_variant if raw_variant in self._VALID_VARIANTS else None
+
         return RecognitionResult(
             main_deck=raw.get("main_deck", []),
             sideboard=raw.get("sideboard", []),
             detected_set=raw.get("detected_set"),
             layout_detected=layout,
             lands_visible=raw.get("lands_visible"),
+            finish=finish,
+            variant=variant,
         )
 
     def _post_process(self, result: RecognitionResult) -> RecognitionResult:
