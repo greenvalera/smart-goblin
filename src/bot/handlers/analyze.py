@@ -513,7 +513,7 @@ async def handle_photo_without_command(
 
         if main_count == 1 and sb_empty:
             # Single card photo — re-recognize with single_card=True to get
-            # finish (foil/nonfoil) and frame variant alongside the card name.
+            # finish (foil/nonfoil) and frame_hint alongside the card name.
             single_recognition = await recognizer.recognize_cards(
                 image_bytes,
                 set_hint=resolved_set,
@@ -525,13 +525,21 @@ async def handle_photo_without_command(
                 if single_recognition.main_deck
                 else recognition.main_deck[0]
             )
+
+            # Cross-reference GPT-4o visual hint with Scryfall frame data
+            from src.parsers.scryfall_variants import get_card_variants, resolve_variant
+            scryfall_variants = await get_card_variants(
+                resolved_card_name, resolved_set or ""
+            )
+            variant = resolve_variant(single_recognition.frame_hint, scryfall_variants)
+
             await _handle_single_card(
                 processing_msg,
                 db_user,
                 resolved_card_name,
                 resolved_set,
                 finish=single_recognition.finish,
-                variant=single_recognition.variant,
+                variant=variant,
             )
 
         elif main_count >= 3:
