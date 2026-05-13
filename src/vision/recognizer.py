@@ -29,9 +29,14 @@ class RecognitionResult:
     finish: Optional[str] = None
     """Card finish: 'foil', 'nonfoil', or None (uncertain). Only populated for
     single-card recognition; always None for deck/batch recognition."""
+    frame_hint: Optional[str] = None
+    """Raw visual hint from GPT-4o: 'no_border', 'decorative_frame', 'extended',
+    'standard', or None. Populated only for single-card recognition; used by
+    the handler to cross-reference against Scryfall data via resolve_variant()."""
     variant: Optional[str] = None
-    """Card frame variant: 'standard', 'showcase', 'extended_art', 'borderless',
-    'retro', or None (uncertain). Only populated for single-card recognition."""
+    """Resolved card frame variant: 'standard', 'showcase', 'extended_art',
+    'borderless', 'retro', or None. Set by the handler after Scryfall
+    cross-referencing; never populated directly from the LLM response."""
 
 
 class CardRecognizer:
@@ -132,7 +137,7 @@ class CardRecognizer:
         return await detect_layout(image, self.llm_client)
 
     _VALID_FINISHES = frozenset({"foil", "nonfoil"})
-    _VALID_VARIANTS = frozenset({"standard", "showcase", "extended_art", "borderless", "retro"})
+    _VALID_FRAME_HINTS = frozenset({"no_border", "decorative_frame", "extended", "standard"})
 
     def _build_result(self, raw: dict) -> RecognitionResult:
         """
@@ -143,14 +148,20 @@ class CardRecognizer:
 
         Returns:
             RecognitionResult populated from the response.
+            ``variant`` is always ``None`` here — it is resolved later by the
+            handler via :func:`src.parsers.scryfall_variants.resolve_variant`.
         """
         layout = parse_layout_from_response(raw)
 
         raw_finish = raw.get("finish")
+        if isinstance(raw_finish, str):
+            raw_finish = raw_finish.strip().lower()
         finish = raw_finish if raw_finish in self._VALID_FINISHES else None
 
-        raw_variant = raw.get("variant")
-        variant = raw_variant if raw_variant in self._VALID_VARIANTS else None
+        raw_frame_hint = raw.get("frame_hint")
+        if isinstance(raw_frame_hint, str):
+            raw_frame_hint = raw_frame_hint.strip().lower()
+        frame_hint = raw_frame_hint if raw_frame_hint in self._VALID_FRAME_HINTS else None
 
         return RecognitionResult(
             main_deck=raw.get("main_deck", []),
@@ -159,7 +170,8 @@ class CardRecognizer:
             layout_detected=layout,
             lands_visible=raw.get("lands_visible"),
             finish=finish,
-            variant=variant,
+            frame_hint=frame_hint,
+            variant=None,  # resolved later via Scryfall cross-reference
         )
 
     def _post_process(self, result: RecognitionResult) -> RecognitionResult:

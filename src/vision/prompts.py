@@ -217,26 +217,26 @@ Use this line — NOT visual shimmer — to determine finish:
 - null: The bottom info line is not readable in this photo (too blurry, cut off, or
   obscured) and you cannot determine the finish.
 
-Card Frame Variant Detection:
-- "borderless": The art completely fills the card edge to edge — NO traditional frame
-  border is visible at all. The entire card surface is artwork with the card name and
-  text box floating over it. There is no coloured border strip around the edge.
-  Example: Blood Crypt (ECL) — art bleeds fully to all four edges.
-- "showcase": A unique illustrated border treatment with themed decorative frame elements
-  (e.g. vines, circuits, stained glass, anime panels). The card still HAS a frame, but
-  the frame itself is stylized with distinctive decorative artwork instead of the plain
-  coloured border. Not to be confused with borderless — showcase cards have a visible
-  frame, just a highly decorated one.
-- "extended_art": Normal frame structure (title bar, type line, text box) is present,
-  but the art extends beyond the traditional art box boundaries into the side borders.
-  The side borders are minimal but a thin coloured border strip is still visible.
-- "standard": Regular Magic frame — clear coloured border, title bar, art box, type line,
-  and text box in standard proportions. Most cards are standard.
-- "retro": Old-school Magic frame style from pre-2003 (classic frame with darker decorative
-  border, set symbol on the right side of the art, characteristic tan/grey text box).
-  Also includes "retro frame" reprints in modern sets.
-- null: You cannot determine the variant (e.g. card is partially obscured or angle is
-  too extreme).
+Frame visual hint (look at the card borders/frame):
+- "no_border": The art extends completely to all four edges of the physical card.
+  There is NO coloured stripe or border visible anywhere along the edges — the art
+  touches the card edge directly on all sides. The card surface appears to be entirely
+  artwork except for the title bar and text box (which may float over the art).
+  When in doubt between no_border and standard, look at the CORNERS of the card —
+  borderless cards have no border in the corners either
+  (e.g. Blood Crypt ECL borderless treatment).
+- "decorative_frame": There is a clearly unusual/decorated border with themed artwork
+  (vines, tech, circuits, stained glass, anime panels, etc.). The card HAS a visible
+  frame, but the frame itself is stylized with distinctive decorative artwork instead
+  of a plain coloured strip.
+- "extended": Normal frame structure is present (title bar, type line, text box), but
+  the art visibly extends beyond the traditional art box into the side border area.
+  A thin coloured border strip is still visible at the edges.
+- "standard": Regular Magic frame with a plain coloured border strip visible on all
+  four sides, standard proportions. Most cards are standard.
+- null: Cannot determine from this image (too blurry, extreme angle, or obscured).
+
+Set "frame_hint" to the MOST obvious visual characteristic you can see.
 
 Return your response as a JSON object:
 {
@@ -246,7 +246,7 @@ Return your response as a JSON object:
     "layout_detected": "physical_cards",
     "lands_visible": false,
     "finish": "foil" | "nonfoil" | null,
-    "variant": "standard" | "showcase" | "extended_art" | "borderless" | "retro" | null
+    "frame_hint": "no_border" | "decorative_frame" | "extended" | "standard" | null
 }
 
 Rules:
@@ -254,8 +254,8 @@ Rules:
 - Use EXACT English card name as printed on the card
 - Use null for detected_set if the set code is not readable
 - Set finish to null only if you genuinely cannot determine it
-- Set variant to null only if the card is too obscured to assess the frame style
-- When in doubt between "standard" and another variant, prefer "standard"
+- Set frame_hint to null only if the card is too obscured to assess the border/frame
+- When in doubt between "standard" and another frame_hint, prefer "standard"
 
 Respond ONLY with the JSON object."""
 
