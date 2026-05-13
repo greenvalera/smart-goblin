@@ -128,7 +128,7 @@ class TestTC_GCF_1_CardFoundInActiveSet:
     async def test_primary_hit_name_has_no_set_suffix(
         self, mock_get_session, MockCardRepository
     ):
-        """TC-GCF-1: Card found in active set — display name has no set suffix."""
+        """TC-GCF-1: Card found in active set — header shows active set code, card name present."""
         db_card = _make_db_card(name="Counterspell", set_code="SOS")
         mock_repo = AsyncMock()
         mock_repo.get_by_name = AsyncMock(return_value=db_card)
@@ -150,9 +150,11 @@ class TestTC_GCF_1_CardFoundInActiveSet:
         )
 
         text = processing_msg.edit_text.call_args.args[0]
-        # Name should NOT carry a parenthesised set code
-        assert "(SOS)" not in text
+        # Card name present and active set code shown in header (new format: "🃏 *Name* (SET)")
         assert "Counterspell" in text
+        assert "SOS" in text
+        # Set code from a *different* set must not leak into the header
+        assert "ECL" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +200,7 @@ class TestTC_GCF_2_FallbackFindsCard:
     async def test_fallback_result_shows_set_code_suffix(
         self, mock_get_session, MockCardRepository
     ):
-        """TC-GCF-2: Fallback card display name includes '(ECL)' suffix."""
+        """TC-GCF-2: Fallback card header shows the actual (ECL) set code, not the active (SOS) one."""
         ecl_card = _make_db_card(name="Blood Crypt", set_code="ECL")
         mock_repo = AsyncMock()
         mock_repo.get_by_name = AsyncMock(side_effect=[None, ecl_card])
@@ -220,7 +222,11 @@ class TestTC_GCF_2_FallbackFindsCard:
         )
 
         text = processing_msg.edit_text.call_args.args[0]
-        assert "Blood Crypt (ECL)" in text
+        # New format: "🃏 *Blood Crypt* (ECL)" — card name and actual set code present
+        assert "Blood Crypt" in text
+        assert "ECL" in text
+        # Active set code (SOS) must NOT appear — fallback shows the card's real set
+        assert "SOS" not in text
 
     @patch("src.bot.handlers.analyze.CardRepository")
     @patch("src.bot.handlers.analyze.get_session")
