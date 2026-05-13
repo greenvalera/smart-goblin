@@ -147,9 +147,13 @@ class CardRecognizer:
         layout = parse_layout_from_response(raw)
 
         raw_finish = raw.get("finish")
+        if isinstance(raw_finish, str):
+            raw_finish = raw_finish.strip().lower()
         finish = raw_finish if raw_finish in self._VALID_FINISHES else None
 
         raw_variant = raw.get("variant")
+        if isinstance(raw_variant, str):
+            raw_variant = raw_variant.strip().lower()
         variant = raw_variant if raw_variant in self._VALID_VARIANTS else None
 
         return RecognitionResult(
