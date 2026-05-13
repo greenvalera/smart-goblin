@@ -189,6 +189,72 @@ class TestFinishVariantExtraction:
             assert result.variant == v, f"expected variant={v!r}, got {result.variant!r}"
 
     @pytest.mark.asyncio
+    async def test_capitalized_finish_normalized(self, mock_llm_client, sample_image_bytes):
+        """'FOIL' (uppercased) is normalized to 'foil' before validation."""
+        mock_llm_client.call_vision.return_value = {
+            **_single_card_response(),
+            "finish": "FOIL",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(sample_image_bytes, single_card=True)
+        assert result.finish == "foil"
+
+    @pytest.mark.asyncio
+    async def test_titlecase_finish_normalized(self, mock_llm_client, sample_image_bytes):
+        """'Nonfoil' (title-cased) is normalized to 'nonfoil' before validation."""
+        mock_llm_client.call_vision.return_value = {
+            **_single_card_response(),
+            "finish": "Nonfoil",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(sample_image_bytes, single_card=True)
+        assert result.finish == "nonfoil"
+
+    @pytest.mark.asyncio
+    async def test_whitespace_finish_normalized(self, mock_llm_client, sample_image_bytes):
+        """' foil ' (leading/trailing whitespace) is stripped and accepted."""
+        mock_llm_client.call_vision.return_value = {
+            **_single_card_response(),
+            "finish": "  foil  ",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(sample_image_bytes, single_card=True)
+        assert result.finish == "foil"
+
+    @pytest.mark.asyncio
+    async def test_capitalized_variant_normalized(self, mock_llm_client, sample_image_bytes):
+        """'Borderless' (title-cased) is normalized to 'borderless' before validation."""
+        mock_llm_client.call_vision.return_value = {
+            **_single_card_response(),
+            "variant": "Borderless",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(sample_image_bytes, single_card=True)
+        assert result.variant == "borderless"
+
+    @pytest.mark.asyncio
+    async def test_whitespace_variant_normalized(self, mock_llm_client, sample_image_bytes):
+        """' borderless ' (with surrounding whitespace) is stripped and accepted."""
+        mock_llm_client.call_vision.return_value = {
+            **_single_card_response(),
+            "variant": " borderless ",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(sample_image_bytes, single_card=True)
+        assert result.variant == "borderless"
+
+    @pytest.mark.asyncio
+    async def test_mixed_case_variant_normalized(self, mock_llm_client, sample_image_bytes):
+        """'Extended_Art' (mixed case) is normalized to 'extended_art'."""
+        mock_llm_client.call_vision.return_value = {
+            **_single_card_response(),
+            "variant": "Extended_Art",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(sample_image_bytes, single_card=True)
+        assert result.variant == "extended_art"
+
+    @pytest.mark.asyncio
     async def test_finish_absent_from_response_is_none(
         self, mock_llm_client, sample_image_bytes
     ):
