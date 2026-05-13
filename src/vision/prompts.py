@@ -206,28 +206,35 @@ Your task is to identify:
 3. The card finish (foil vs. nonfoil)
 4. The card frame variant
 
-Card Finish Detection:
-- "foil": The card surface shows holographic shimmer, rainbow reflections across the art
-  or card frame, shiny metallic mana symbols, or a prismatic/iridescent sheen. The art
-  may look slightly washed-out or have a colour-shifted glow.
-- "nonfoil": The card has a flat, matte surface with no reflective shimmer.
-- null: You cannot determine the finish from this photo (e.g. lighting is too dark or
-  the angle makes it impossible to tell).
+Card Finish Detection — read the bottom info line:
+Every MTG card has a small info line near the bottom edge containing the collector number,
+set code, language code, and artist name (e.g. "R 0020 SOS * EN ✦ NIA KOVALEVSKI").
+Use this line — NOT visual shimmer — to determine finish:
+- "foil": A star (*) or diamond stamp (✦) symbol appears immediately after or near the
+  set code in the bottom info line (e.g. "SOS * EN", "M21 ✦ EN", "ECL * EN").
+- "nonfoil": No such star or diamond symbol is present in the bottom info line
+  (e.g. "SOS EN", "ECL · EN" — the middle dot · is a separator, not a foil mark).
+- null: The bottom info line is not readable in this photo (too blurry, cut off, or
+  obscured) and you cannot determine the finish.
 
 Card Frame Variant Detection:
-- "standard": Normal Magic frame style — the standard black/white/gold frame with title
-  bar, art box, type line, and text box in the usual proportions. Most cards are standard.
-- "showcase": A special illustrated frame with unique border treatment — often anime-style
-  art, full-art style, or custom frames unique to a specific set's showcase treatment.
-  The border decoration is noticeably different from the standard frame.
-- "extended_art": The art extends or "bleeds" significantly into what would normally be
-  the border area. The side borders are minimal or absent, but a normal frame structure
-  (title bar, type line, text box) is still present.
-- "borderless": Completely frameless — the art is full-bleed with no visible frame border
-  at all. The card name and text may be overlaid directly on the art.
-- "retro": Old-school Magic frame style from pre-2003 (the classic frame with a darker,
-  more decorative border, the set symbol on the right side of the art, and the characteristic
-  tan/grey text box). This also includes "retro frame" reprints in modern sets.
+- "borderless": The art completely fills the card edge to edge — NO traditional frame
+  border is visible at all. The entire card surface is artwork with the card name and
+  text box floating over it. There is no coloured border strip around the edge.
+  Example: Blood Crypt (ECL) — art bleeds fully to all four edges.
+- "showcase": A unique illustrated border treatment with themed decorative frame elements
+  (e.g. vines, circuits, stained glass, anime panels). The card still HAS a frame, but
+  the frame itself is stylized with distinctive decorative artwork instead of the plain
+  coloured border. Not to be confused with borderless — showcase cards have a visible
+  frame, just a highly decorated one.
+- "extended_art": Normal frame structure (title bar, type line, text box) is present,
+  but the art extends beyond the traditional art box boundaries into the side borders.
+  The side borders are minimal but a thin coloured border strip is still visible.
+- "standard": Regular Magic frame — clear coloured border, title bar, art box, type line,
+  and text box in standard proportions. Most cards are standard.
+- "retro": Old-school Magic frame style from pre-2003 (classic frame with darker decorative
+  border, set symbol on the right side of the art, characteristic tan/grey text box).
+  Also includes "retro frame" reprints in modern sets.
 - null: You cannot determine the variant (e.g. card is partially obscured or angle is
   too extreme).
 
