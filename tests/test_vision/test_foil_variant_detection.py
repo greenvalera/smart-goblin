@@ -248,14 +248,16 @@ class TestSingleCardPromptContent:
     """SINGLE_CARD_RECOGNITION_PROMPT contains necessary detection instructions."""
 
     def test_prompt_mentions_foil_detection_cues(self):
-        """Prompt describes visual cues for foil detection."""
+        """Prompt describes bottom info line approach for foil detection."""
         lower = SINGLE_CARD_RECOGNITION_PROMPT.lower()
-        assert "holographic" in lower or "shimmer" in lower or "rainbow" in lower
+        # New approach: read the star/diamond from the bottom info line
+        assert "bottom info line" in lower or "info line" in lower
+        assert "*" in SINGLE_CARD_RECOGNITION_PROMPT or "star" in lower
 
     def test_prompt_mentions_nonfoil(self):
-        """Prompt distinguishes nonfoil (matte) surface."""
+        """Prompt distinguishes nonfoil (no star/diamond symbol)."""
         lower = SINGLE_CARD_RECOGNITION_PROMPT.lower()
-        assert "nonfoil" in lower or "matte" in lower
+        assert "nonfoil" in lower
 
     def test_prompt_lists_all_valid_variants(self):
         """Prompt explicitly lists all accepted variant values."""
