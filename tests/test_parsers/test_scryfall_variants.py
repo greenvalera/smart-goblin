@@ -253,3 +253,48 @@ class TestResolveVariantMultiplePrintings:
             {"frame_effects": [], "border_color": "borderless"},
         ]
         assert resolve_variant("no_border", variants) == "borderless"
+
+    def test_null_hint_with_borderless_and_standard_returns_none(self):
+        """Null visual hint with borderless + standard printings → None (can't distinguish)."""
+        variants = [
+            {"frame_effects": [], "border_color": "black"},
+            {"frame_effects": [], "border_color": "borderless"},
+        ]
+        assert resolve_variant(None, variants) is None
+
+    def test_no_border_hint_blood_crypt_ecl(self):
+        """Blood Crypt ECL: 2 printings, borderless has border_color=borderless + no_border hint."""
+        variants = [
+            {"frame_effects": [], "border_color": "black"},           # standard
+            {"frame_effects": ["inverted"], "border_color": "borderless"},  # borderless ECL
+        ]
+        assert resolve_variant("no_border", variants) == "borderless"
+
+
+# ---------------------------------------------------------------------------
+# resolve_variant — single printing bug fixes (border_color + inverted)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveVariantSinglePrintingBorderColor:
+    """Single-printing branch must check border_color and handle 'inverted' frame_effect."""
+
+    def test_single_border_color_borderless_returns_borderless(self):
+        """border_color='borderless' with empty frame_effects → borderless."""
+        variants = [{"frame_effects": [], "border_color": "borderless"}]
+        assert resolve_variant("standard", variants) == "borderless"
+
+    def test_single_inverted_effect_with_borderless_color_returns_borderless(self):
+        """frame_effects=['inverted'] + border_color='borderless' → borderless (Blood Crypt ECL)."""
+        variants = [{"frame_effects": ["inverted"], "border_color": "borderless"}]
+        assert resolve_variant(None, variants) == "borderless"
+
+    def test_single_inverted_effect_with_black_border_returns_borderless(self):
+        """frame_effects=['inverted'] alone maps to borderless."""
+        variants = [{"frame_effects": ["inverted"], "border_color": "black"}]
+        assert resolve_variant(None, variants) == "borderless"
+
+    def test_single_none_frame_effects_with_borderless_color(self):
+        """frame_effects=None (API quirk) with border_color='borderless' → borderless."""
+        variants = [{"frame_effects": None, "border_color": "borderless"}]
+        assert resolve_variant(None, variants) == "borderless"

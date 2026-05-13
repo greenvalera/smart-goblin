@@ -218,9 +218,13 @@ Use this line — NOT visual shimmer — to determine finish:
   obscured) and you cannot determine the finish.
 
 Frame visual hint (look at the card borders/frame):
-- "no_border": The art fills ALL four edges completely — NO coloured border strip is
-  visible anywhere around the card edges. The entire surface is artwork with the card
-  name and text box floating over it (e.g. Blood Crypt ECL borderless treatment).
+- "no_border": The art extends completely to all four edges of the physical card.
+  There is NO coloured stripe or border visible anywhere along the edges — the art
+  touches the card edge directly on all sides. The card surface appears to be entirely
+  artwork except for the title bar and text box (which may float over the art).
+  When in doubt between no_border and standard, look at the CORNERS of the card —
+  borderless cards have no border in the corners either
+  (e.g. Blood Crypt ECL borderless treatment).
 - "decorative_frame": There is a clearly unusual/decorated border with themed artwork
   (vines, tech, circuits, stained glass, anime panels, etc.). The card HAS a visible
   frame, but the frame itself is stylized with distinctive decorative artwork instead

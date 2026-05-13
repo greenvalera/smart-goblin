@@ -92,27 +92,31 @@ def resolve_variant(
 
     # Only one printing: use its effects directly, ignore visual hint
     if len(scryfall_variants) == 1:
-        effects = scryfall_variants[0].get("frame_effects", [])
-        for effect in ("borderless", "showcase", "extended_art", "retro"):
+        v = scryfall_variants[0]
+        effects = v.get("frame_effects", []) or []
+        if v.get("border_color") == "borderless" or "borderless" in effects:
+            return "borderless"
+        for effect in ("showcase", "extended_art", "retro", "inverted"):
             if effect in effects:
-                return effect
+                # "inverted" is Scryfall's frame_effect for some borderless cards
+                return "borderless" if effect == "inverted" else effect
         return None  # standard
 
     # Multiple printings — use visual hint to disambiguate
-    if visual_hint == "no_border":
-        for v in scryfall_variants:
-            if (
-                "borderless" in v.get("frame_effects", [])
-                or v.get("border_color") == "borderless"
-            ):
-                return "borderless"
+    borderless_variants = [
+        v for v in scryfall_variants if v.get("border_color") == "borderless"
+    ]
+
+    if visual_hint == "no_border" and borderless_variants:
+        return "borderless"
     elif visual_hint == "decorative_frame":
         for v in scryfall_variants:
-            if "showcase" in v.get("frame_effects", []):
+            if "showcase" in (v.get("frame_effects") or []):
                 return "showcase"
     elif visual_hint == "extended":
         for v in scryfall_variants:
-            if "extended_art" in v.get("frame_effects", []):
+            if "extended_art" in (v.get("frame_effects") or []):
                 return "extended_art"
 
-    return None  # standard or undetermined
+    # No clear visual hint — can't reliably distinguish
+    return None
