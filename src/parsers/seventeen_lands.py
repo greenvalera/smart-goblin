@@ -74,6 +74,39 @@ _GRADE_OFFSET = 11 / 6  # 17lands' dS = 2 - 1/6
 # Grades that indicate insufficient data (excluded from numeric rating)
 UNRATED_GRADES = {"-", "SB"}
 
+# 17lands asks third-party tools not to surface a new expansion's data until
+# the 12th day after its Arena release, so that their own userbase keeps
+# growing while engagement with a set is highest. See
+# https://www.17lands.com/usage_guidelines
+#
+# We count from the Scryfall *paper* release date. Arena early access starts
+# roughly three days earlier, so counting from paper deliberately overshoots
+# the embargo rather than cutting it short.
+EMBARGO_DAYS = 12
+
+
+def is_under_embargo(
+    release_date: Optional[date],
+    today: Optional[date] = None,
+) -> bool:
+    """
+    Whether a set's 17lands data is still inside the request embargo.
+
+    Args:
+        release_date: The set's release date. ``None`` (unknown) is treated
+            as *not* embargoed — every set already in the DB predates this
+            check, and blocking on missing metadata would silently drop
+            ratings for them.
+        today: Override for the current date, for testing.
+
+    Returns:
+        True while the set is too new for its data to be surfaced.
+    """
+    if release_date is None:
+        return False
+    today = today or date.today()
+    return (today - release_date).days < EMBARGO_DAYS
+
 
 def z_score_to_grade(z_score: float) -> str:
     """
@@ -310,14 +343,19 @@ class SeventeenLandsParser:
             NotFoundError: If set/format combination not found.
             ParserError: If fetching fails.
         """
+        # 17lands moved this feed to /api/card_data and renamed the format
+        # parameter to event_type. The old /card_ratings/data still answers
+        # 200 with the full card list but every statistic nulled out, so the
+        # switch is not optional — the legacy path silently returns no data.
+        # Record fields themselves are unchanged.
         params = [
             f"expansion={set_code.upper()}",
-            f"format={format_name}",
+            f"event_type={format_name}",
         ]
         if start_date is not None:
             params.append(f"start_date={start_date.isoformat()}")
 
-        url = f"{self.base_url}/card_ratings/data?" + "&".join(params)
+        url = f"{self.base_url}/api/card_data?" + "&".join(params)
 
         logger.info(
             "Fetching 17lands ratings for %s (%s, start_date=%s)...",

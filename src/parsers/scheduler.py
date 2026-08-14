@@ -28,7 +28,11 @@ from src.parsers.grade_validator import (
     validate_set_grades,
 )
 from src.parsers.scryfall import ScryfallParser
-from src.parsers.seventeen_lands import SeventeenLandsParser
+from src.parsers.seventeen_lands import (
+    EMBARGO_DAYS,
+    SeventeenLandsParser,
+    is_under_embargo,
+)
 from src.db.repository import CardData as RepoCardData, RatingData as RepoRatingData
 
 logger = logging.getLogger(__name__)
@@ -144,6 +148,20 @@ async def run_updates() -> UpdateResult:
                 # sample and shift grades. The API default (no date filter)
                 # returns the full format history, which matches the site's
                 # default for newly released sets exactly.
+                if is_under_embargo(set_obj.release_date):
+                    # 17lands asks third-party tools to hold a new set's data
+                    # back for its first 12 days. Skipping the fetch entirely
+                    # means we never store — and so never surface — data we
+                    # are not meant to show yet.
+                    logger.info(
+                        "Set %s is within the %d-day 17lands embargo "
+                        "(released %s) — skipping ratings.",
+                        set_code,
+                        EMBARGO_DAYS,
+                        set_obj.release_date,
+                    )
+                    continue
+
                 try:
                     ratings = await seventeen.fetch_ratings(
                         set_code,

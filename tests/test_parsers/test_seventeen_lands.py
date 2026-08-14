@@ -6,7 +6,9 @@ Focus on the two pieces of logic that determine the final letter grade:
 - ``SeventeenLandsParser._apply_grades``: assigning grades from a global pool.
 """
 
+from datetime import date
 from decimal import Decimal
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -14,8 +16,85 @@ from src.parsers.base import RatingData
 from src.parsers.seventeen_lands import (
     MIN_CARDS_FOR_STATS,
     SeventeenLandsParser,
+    is_under_embargo,
     z_score_to_grade,
 )
+
+
+class TestRequestUrl:
+    """
+    Pin the endpoint and parameter names.
+
+    17lands moved this feed from /card_ratings/data to /api/card_data and
+    renamed ``format`` to ``event_type``. The legacy path still answers 200
+    with every statistic nulled out rather than failing, so a regression
+    here is invisible at runtime — it just silently stops carrying data.
+    """
+
+    async def test_calls_api_card_data_with_event_type(self):
+        parser = SeventeenLandsParser()
+        parser._request = AsyncMock(return_value={"data": []})
+
+        await parser.fetch_ratings("SOS", format_name="PremierDraft")
+
+        url = parser._request.await_args.args[0]
+        assert "/api/card_data?" in url
+        assert "expansion=SOS" in url
+        assert "event_type=PremierDraft" in url
+        assert "card_ratings/data" not in url
+        assert "format=" not in url
+
+    async def test_start_date_is_forwarded(self):
+        parser = SeventeenLandsParser()
+        parser._request = AsyncMock(return_value={"data": []})
+
+        await parser.fetch_ratings("SOS", start_date=date(2026, 1, 31))
+
+        assert "start_date=2026-01-31" in parser._request.await_args.args[0]
+
+    async def test_unwraps_the_data_envelope(self):
+        """The endpoint wraps rows in {copyright, notes, data}."""
+        parser = SeventeenLandsParser()
+        parser._request = AsyncMock(
+            return_value={
+                "copyright": "(c) 2026 17Lands LLC",
+                "notes": "…",
+                "data": [
+                    {"name": "Enveloped Card", "ever_drawn_win_rate": 0.55,
+                     "game_count": 1000},
+                ],
+            }
+        )
+
+        ratings = await parser.fetch_ratings("SOS")
+
+        assert [r.card_name for r in ratings] == ["Enveloped Card"]
+
+
+class TestEmbargo:
+    """
+    17lands asks third-party tools to hold a new set's data for 12 days
+    after its Arena release. See https://www.17lands.com/usage_guidelines
+    """
+
+    def test_day_of_release_is_embargoed(self):
+        assert is_under_embargo(date(2026, 8, 1), today=date(2026, 8, 1)) is True
+
+    def test_day_eleven_is_still_embargoed(self):
+        assert is_under_embargo(date(2026, 8, 1), today=date(2026, 8, 12)) is True
+
+    def test_day_twelve_is_clear(self):
+        assert is_under_embargo(date(2026, 8, 1), today=date(2026, 8, 13)) is False
+
+    def test_long_released_set_is_clear(self):
+        assert is_under_embargo(date(2024, 2, 9), today=date(2026, 8, 14)) is False
+
+    def test_unknown_release_date_is_not_embargoed(self):
+        """
+        Sets already in the DB may predate release-date tracking. Treating
+        an unknown date as embargoed would silently drop their ratings.
+        """
+        assert is_under_embargo(None, today=date(2026, 8, 14)) is False
 
 
 class TestParseRating:

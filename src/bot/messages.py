@@ -16,6 +16,16 @@ from src.db.models import Analysis, Card, CardRating
 # Maximum number of cards shown in a list before truncating
 MAX_CARDS_DISPLAYED = 20
 
+# 17Lands asks tools built on their data to name the source, with a link to
+# the page it comes from, at the introduction of the work and kept visible at
+# the top level rather than tucked into a footnote. Spelled with a capital L
+# at their request. See https://www.17lands.com/usage_guidelines
+DATA_ATTRIBUTION = (
+    "📈 Грейди та вінрейти карт — дані [17Lands]"
+    "(https://www.17lands.com/card_data). "
+    "Інформація про карти — [Scryfall](https://scryfall.com)."
+)
+
 
 def format_history_list(analyses: list[Analysis]) -> str:
     """
@@ -230,7 +240,9 @@ def format_help() -> str:
         "• Скріншоти MTG Arena (колода та сайдборд)\n"
         "• Фото фізичних карт, розкладених рядками\n"
         "\n"
-        "💡 Для найкращих результатів переконайтеся, що назви карт чітко видно."
+        "💡 Для найкращих результатів переконайтеся, що назви карт чітко видно.\n"
+        "\n"
+        f"{DATA_ATTRIBUTION}"
     )
 
 
@@ -246,12 +258,14 @@ def format_start() -> str:
         "драфт-колод Magic: The Gathering.\n"
         "\n"
         "Просто надішліть мені фото — я автоматично розпізнаю що на ньому:\n"
-        "• Одна карта → грейд і вінрейт з 17lands\n"
+        "• Одна карта → грейд і вінрейт з 17Lands\n"
         "• Колода (3+ карти) → повний аналіз з рекомендаціями\n"
         "\n"
         "Або скористайтеся командами:\n"
         "• /analyze — аналіз колоди\n"
         "• /draft — режим драфту з main deck та sideboard\n"
+        "\n"
+        f"{DATA_ATTRIBUTION}\n"
         "\n"
         "Введіть /help для повного списку команд."
     )
