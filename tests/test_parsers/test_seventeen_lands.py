@@ -18,6 +18,82 @@ from src.parsers.seventeen_lands import (
 )
 
 
+class TestParseRating:
+    """
+    Pin the 17lands JSON field mapping.
+
+    ``_parse_rating`` is the only place the upstream response shape is
+    read. It had no coverage, so when 17lands' feed stopped carrying
+    statistics every test still passed and the breakage surfaced only as
+    ungraded cards in production. These records use the field names and
+    types the live endpoint returns.
+    """
+
+    def test_maps_a_populated_record(self):
+        parser = SeventeenLandsParser()
+        rating = parser._parse_rating(
+            {
+                "name": "Masterful Flourish",
+                "color": "W",
+                "rarity": "common",
+                "ever_drawn_win_rate": 0.564321,
+                "ever_drawn_game_count": 4200,
+                "game_count": 4200,
+                "url": "https://cards.scryfall.io/large/front/7/a/7a451985.jpg",
+            },
+            "PremierDraft",
+        )
+
+        assert rating.card_name == "Masterful Flourish"
+        # Stored as a percentage, not the raw 0..1 fraction.
+        assert rating.win_rate == Decimal("56.4321")
+        assert rating.games_played == 4200
+        assert rating.low_confidence is False
+        assert rating.format == "PremierDraft"
+        # Grades are assigned later, by _apply_grades over the full sample.
+        assert rating.grade is None
+        assert rating.rating is None
+
+    def test_maps_a_statless_record(self):
+        """
+        The shape 17lands serves when it has no aggregates for a card:
+        the entry exists, every statistic is null or zero.
+        """
+        parser = SeventeenLandsParser()
+        rating = parser._parse_rating(
+            {
+                "name": "The Dawning Archaic",
+                "color": "",
+                "rarity": "mythic",
+                "ever_drawn_win_rate": None,
+                "ever_drawn_game_count": 0,
+                "game_count": 0,
+                "url": "https://cards.scryfall.io/large/front/7/a/7a451985.jpg",
+            },
+            "PremierDraft",
+        )
+
+        assert rating.card_name == "The Dawning Archaic"
+        assert rating.win_rate is None
+        assert rating.games_played == 0
+        assert rating.low_confidence is True
+
+    def test_falls_back_to_ever_drawn_game_count(self):
+        """``game_count`` absent — the parser falls back to the ever-drawn count."""
+        parser = SeventeenLandsParser()
+        rating = parser._parse_rating(
+            {
+                "name": "Fallback Card",
+                "ever_drawn_win_rate": 0.51,
+                "ever_drawn_game_count": 900,
+            },
+            "PremierDraft",
+        )
+
+        assert rating.games_played == 900
+        assert rating.low_confidence is False
+
+
 class TestZScoreToGrade:
     """Verify the formula matches 17lands' frontend ``floor(3*(z + 11/6))``."""
 

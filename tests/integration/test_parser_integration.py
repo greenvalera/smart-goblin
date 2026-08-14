@@ -264,6 +264,98 @@ class TestTC175ParserUpsertNoDuplicates:
         assert card.ratings[0].games_played == 10000
 
     @pytest.mark.asyncio
+    async def test_upsert_ratings_preserves_stats_when_feed_is_empty(
+        self, clean_session: AsyncSession
+    ):
+        """
+        A rating with no statistics must not wipe a stored one.
+
+        17lands returns null win rates both for barely-played cards and,
+        as happened in production, for every card in every set when its
+        public feed stops serving aggregates. Upserting those nulls used
+        to overwrite good grades with NULL on the nightly run.
+        """
+        set_code = "STRV"
+        card_repo = CardRepository(clean_session)
+        set_repo = SetRepository(clean_session)
+
+        await set_repo.get_or_create(set_code)
+        await card_repo.upsert_cards([
+            CardData(name="Starved Card", set_code=set_code, cmc=Decimal("2")),
+        ])
+        await clean_session.commit()
+
+        await card_repo.upsert_ratings([
+            RatingData(
+                card_name="Starved Card",
+                set_code=set_code,
+                source="17lands",
+                rating=Decimal("4.0"),
+                win_rate=Decimal("57.5"),
+                games_played=5000,
+                format="PremierDraft",
+            ),
+        ])
+        await clean_session.commit()
+
+        # A starved feed: card is listed, but carries no statistics.
+        written = await card_repo.upsert_ratings([
+            RatingData(
+                card_name="Starved Card",
+                set_code=set_code,
+                source="17lands",
+                rating=None,
+                win_rate=None,
+                games_played=0,
+                format="PremierDraft",
+            ),
+        ])
+        await clean_session.commit()
+
+        assert written == 0, "statless rating must not count as written"
+
+        card = await card_repo.get_by_name("Starved Card", set_code)
+        assert len(card.ratings) == 1
+        assert card.ratings[0].rating == Decimal("4.0")
+        assert card.ratings[0].win_rate == Decimal("57.5")
+        assert card.ratings[0].games_played == 5000
+
+    @pytest.mark.asyncio
+    async def test_upsert_ratings_inserts_statless_rating_when_absent(
+        self, clean_session: AsyncSession
+    ):
+        """
+        A statless rating is still inserted when no row exists yet, so a
+        placeholder is in place for when real data arrives.
+        """
+        set_code = "STRV2"
+        card_repo = CardRepository(clean_session)
+        set_repo = SetRepository(clean_session)
+
+        await set_repo.get_or_create(set_code)
+        await card_repo.upsert_cards([
+            CardData(name="Fresh Card", set_code=set_code, cmc=Decimal("3")),
+        ])
+        await clean_session.commit()
+
+        await card_repo.upsert_ratings([
+            RatingData(
+                card_name="Fresh Card",
+                set_code=set_code,
+                source="17lands",
+                rating=None,
+                win_rate=None,
+                games_played=0,
+                format="PremierDraft",
+            ),
+        ])
+        await clean_session.commit()
+
+        card = await card_repo.get_by_name("Fresh Card", set_code)
+        assert len(card.ratings) == 1
+        assert card.ratings[0].rating is None
+
+    @pytest.mark.asyncio
     async def test_parser_fetch_and_upsert_cycle(
         self, clean_session: AsyncSession
     ):

@@ -12,6 +12,7 @@ import asyncio
 import logging
 import re
 import sys
+from dataclasses import dataclass
 from uuid import UUID
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -39,7 +40,17 @@ _SCRYFALL_UUID_RE = re.compile(
 )
 
 
-async def run_updates() -> list[ValidationReport]:
+@dataclass
+class UpdateResult:
+    """Outcome of a parser run."""
+
+    reports: list[ValidationReport]
+    # Sets whose 17lands feed returned cards but no usable statistics.
+    # Their ratings were deliberately left untouched in the DB.
+    starved_sets: list[str]
+
+
+async def run_updates() -> UpdateResult:
     """
     Run all parser updates for sets stored in the database.
 
@@ -49,19 +60,25 @@ async def run_updates() -> list[ValidationReport]:
     and compares against the freshly persisted DB grades; mismatches
     are logged at WARNING but never raise.
 
+    A set whose 17lands response carries no win rates at all is treated
+    as a failed fetch rather than an empty update: its ratings are left
+    untouched and the set is reported in ``starved_sets``.
+
     Errors are logged but never propagated so that a single failing
     parser cannot crash the bot.
 
     Returns:
-        Per-set ``ValidationReport`` list. Used by the manual
-        ``--strict`` CLI invocation to gate its exit code; the daily
-        APScheduler trigger ignores the return value.
+        ``UpdateResult`` with per-set validation reports and the sets
+        whose feed was starved. Used by the manual ``--strict`` CLI
+        invocation to gate its exit code; the daily APScheduler trigger
+        ignores the return value.
     """
     logger.info("Starting scheduled parser update...")
 
     scryfall = ScryfallParser()
     seventeen = SeventeenLandsParser()
     reports: list[ValidationReport] = []
+    starved_sets: list[str] = []
 
     try:
         async with get_session() as session:
@@ -77,7 +94,7 @@ async def run_updates() -> list[ValidationReport]:
 
             if not sets:
                 logger.info("No sets in database, skipping update.")
-                return reports
+                return UpdateResult(reports=reports, starved_sets=starved_sets)
 
             for set_obj in sets:
                 set_code = set_obj.code
@@ -132,7 +149,19 @@ async def run_updates() -> list[ValidationReport]:
                         set_code,
                         main_set_card_names=main_set_card_names or None,
                     )
-                    if ratings:
+                    if ratings and not any(r.win_rate is not None for r in ratings):
+                        # 17lands answered with the full card list but no
+                        # statistics at all. That is a starved feed, not an
+                        # update: upserting it would replace good ratings
+                        # with nulls, so skip the write and flag the set.
+                        logger.error(
+                            "17lands returned %d rating(s) for %s but none carry a "
+                            "win rate — skipping upsert to preserve stored ratings.",
+                            len(ratings),
+                            set_code,
+                        )
+                        starved_sets.append(set_code)
+                    elif ratings:
                         # --- Seed bonus/Special Guest cards ---
                         # 17lands mixes bonus-sheet cards (e.g. Special Guests in SOS)
                         # into the ratings feed. These have a different Scryfall set code
@@ -199,7 +228,13 @@ async def run_updates() -> list[ValidationReport]:
                             for r in ratings
                         ]
                         count = await card_repo.upsert_ratings(repo_ratings)
-                        logger.info("Upserted %d ratings for %s from 17lands.", count, set_code)
+                        logger.info(
+                            "Upserted %d of %d ratings for %s from 17lands "
+                            "(the rest carried no statistics and were left as-is).",
+                            count,
+                            len(repo_ratings),
+                            set_code,
+                        )
                 except ParserError as exc:
                     logger.error("17lands error for %s: %s", set_code, exc)
                 except Exception as exc:
@@ -227,8 +262,17 @@ async def run_updates() -> list[ValidationReport]:
         await scryfall.close()
         await seventeen.close()
 
+    if starved_sets:
+        logger.error(
+            "17lands served no statistics for %d set(s): %s. "
+            "Stored ratings were preserved; grades will stay stale until the "
+            "feed recovers.",
+            len(starved_sets),
+            ", ".join(starved_sets),
+        )
+
     logger.info("Scheduled parser update finished.")
-    return reports
+    return UpdateResult(reports=reports, starved_sets=starved_sets)
 
 
 def create_scheduler() -> AsyncIOScheduler:
@@ -260,8 +304,9 @@ def create_scheduler() -> AsyncIOScheduler:
 if __name__ == "__main__":
     # Manual run: python -m src.parsers.scheduler [--strict]
     #
-    # ``--strict`` exits 1 if any set has grade mismatches. Useful as a
-    # post-update gate; the daily APScheduler trigger ignores this flag.
+    # ``--strict`` exits 1 if any set has grade mismatches or if 17lands
+    # served no statistics at all. Useful as a post-update gate; the daily
+    # APScheduler trigger ignores this flag.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -271,8 +316,16 @@ if __name__ == "__main__":
     logging.getLogger("httpx").setLevel(logging.WARNING)
     strict = "--strict" in sys.argv[1:]
     logger.info("Running parser update manually (strict=%s)...", strict)
-    reports = asyncio.run(run_updates())
+    result = asyncio.run(run_updates())
+    reports = result.reports
     if strict:
+        if result.starved_sets:
+            logger.error(
+                "Strict mode: 17lands served no statistics for %d set(s): %s.",
+                len(result.starved_sets),
+                ", ".join(result.starved_sets),
+            )
+            sys.exit(1)
         total_mismatches = sum(r.mismatched for r in reports)
         if total_mismatches > 0:
             logger.error(
