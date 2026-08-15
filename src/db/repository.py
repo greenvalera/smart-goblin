@@ -328,21 +328,31 @@ class CardRepository:
         """
         Insert or update card ratings (upsert).
 
+        A rating carrying no statistics (no ``win_rate`` and no ``rating``)
+        never overwrites a stored row. 17lands legitimately returns empty
+        stats for cards with too little play, and it returned empty stats
+        for *every* card when its public feed stopped serving aggregates —
+        blindly upserting those nulls wipes grades that were already
+        computed. Such rows are still inserted when the card has no rating
+        yet, so a placeholder exists once real data arrives.
+
         Args:
             ratings: List of rating data to upsert
 
         Returns:
-            Number of ratings processed.
+            Number of ratings whose statistics were written.
         """
         if not ratings:
             return 0
 
-        processed = 0
+        written = 0
         for r in ratings:
             # Find the card
             card = await self.get_by_name(r.card_name, r.set_code)
             if not card:
                 continue
+
+            has_stats = r.win_rate is not None or r.rating is not None
 
             # Upsert rating
             stmt = insert(CardRating).values(
@@ -354,19 +364,24 @@ class CardRepository:
                 format=r.format,
                 fetched_at=datetime.now(UTC),
             )
-            stmt = stmt.on_conflict_do_update(
-                constraint="uq_card_ratings_card_source_format",
-                set_={
-                    "rating": stmt.excluded.rating,
-                    "win_rate": stmt.excluded.win_rate,
-                    "games_played": stmt.excluded.games_played,
-                    "fetched_at": stmt.excluded.fetched_at,
-                },
-            )
+            if has_stats:
+                stmt = stmt.on_conflict_do_update(
+                    constraint="uq_card_ratings_card_source_format",
+                    set_={
+                        "rating": stmt.excluded.rating,
+                        "win_rate": stmt.excluded.win_rate,
+                        "games_played": stmt.excluded.games_played,
+                        "fetched_at": stmt.excluded.fetched_at,
+                    },
+                )
+                written += 1
+            else:
+                stmt = stmt.on_conflict_do_nothing(
+                    constraint="uq_card_ratings_card_source_format",
+                )
             await self.session.execute(stmt)
-            processed += 1
 
-        return processed
+        return written
 
 
 class UserRepository:
