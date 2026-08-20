@@ -8,8 +8,23 @@ Smart Goblin is a Telegram bot that analyzes MTG Draft decks via image recogniti
 
 ## Task Tracker
 
-Tasks live in Notion: [Smart Goblin → Tasks Tracker](https://www.notion.so/Smart-Goblin-34e5c1393d3680e8bf47f3b6ef1ed4fb).
-Use the Notion MCP tools (`mcp__claude_ai_Notion__*`) to read, create, and update tasks. Don't add new task files under `doc/`.
+Tasks live in Linear: workspace [Smart Goblin](https://linear.app/smart-goblin), team `SMA`.
+Use the Linear MCP tools to read, create, and update tasks. Don't add new task files under `doc/`.
+
+Notion is the former tracker and is now read-only history — don't create tasks there.
+
+Conventions:
+
+| Field | Values |
+|-------|--------|
+| Status | `Backlog` → `Todo` → `In Progress` → `In Review` → `Done` (also `Canceled`, `Duplicate`) |
+| Labels | `Bug`, `Feature`, `Improvement` — exactly one per issue |
+| Priority | `Urgent` (1), `High` (2), `Medium` (3), `Low` (4) |
+| Estimate | points: 1 = small, 2 = medium, 5 = large |
+
+Linear generates the git branch name for each issue (`gitBranchName`, e.g.
+`greenvalera/sma-5-...`). Use it when starting work — opening a PR from that branch
+auto-links it to the issue and moves the issue to `In Review`, and merging moves it to `Done`.
 
 ## Running Python (venv)
 
