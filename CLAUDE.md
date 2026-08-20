@@ -9,7 +9,7 @@ Smart Goblin is a Telegram bot that analyzes MTG Draft decks via image recogniti
 ## Task Tracker
 
 Tasks live in Linear: workspace [Smart Goblin](https://linear.app/smart-goblin), team `SMA`.
-Use the Linear MCP tools (`mcp__Linear__*`) to read, create, and update tasks. Don't add new task files under `doc/`.
+Use the Linear MCP tools to read, create, and update tasks. Don't add new task files under `doc/`.
 
 Notion is the former tracker and is now read-only history — don't create tasks there.
 
