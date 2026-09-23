@@ -26,6 +26,39 @@ Linear generates the git branch name for each issue (`gitBranchName`, e.g.
 `greenvalera/sma-5-...`). Use it when starting work — opening a PR from that branch
 auto-links it to the issue and moves the issue to `In Review`, and merging moves it to `Done`.
 
+## GSD Workflow (Get Shit Done)
+
+[GSD](https://github.com/gsd-build/get-shit-done) is installed locally in `.claude/`
+(commands in `.claude/commands/gsd/`, agents in `.claude/agents/`, hooks in
+`.claude/hooks/gsd-*`). It plans and executes work; **Linear stays the only task tracker**.
+
+Division of responsibility:
+
+| Linear (what / when / status) | GSD `.planning/` (how) |
+|-------------------------------|------------------------|
+| Backlog, priority, estimate, status | Specs, research, plans, verification for the issue being worked on |
+| New ideas, bugs, follow-ups | Nothing — create a Linear issue instead |
+
+Rules:
+
+- Every piece of GSD work starts from a Linear issue. Put the issue ID (`SMA-N`) in the GSD
+  task description, plan titles, and commit messages.
+- Don't use GSD's own backlog/todo features (`/gsd:capture`, `/gsd:inbox`, `/gsd:review-backlog`,
+  `/gsd:thread`) to track work. Any follow-up or deferred item GSD surfaces becomes a Linear issue.
+- Pick the GSD entry point by the issue's estimate:
+  - 1–2 points → `/gsd:quick SMA-N <description>` (or `/gsd:fast` for trivial changes).
+  - 5 points / multi-step features → a GSD phase: `/gsd:discuss-phase` → `/gsd:plan-phase` →
+    `/gsd:execute-phase` → `/gsd:verify-work`.
+- Work on the Linear-generated branch, and commit the `.planning/` artifacts on it so the plan
+  ships with the PR. Linear status moves automatically via the PR, as described above.
+- `/gsd:map-codebase` and `/gsd:new-project` (run once) produce `.planning/PROJECT.md` and the
+  codebase map; keep them in sync with this file rather than duplicating it.
+
+Updating GSD: run `npx get-shit-done-cc@latest --claude --local` from the repo root. The installer
+writes absolute paths into the files it installs; before committing, replace them with
+repo-relative `./.claude/...` paths and replace the absolute `node` binary path in
+`.claude/settings.json` with plain `node`, so the install works both on Windows and in cloud sessions.
+
 ## Running Python (venv)
 
 The project uses a virtual environment at `.venv/`. On Windows, all Python/pytest/alembic commands must be run through PowerShell via `powershell.exe -Command`:

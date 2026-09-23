@@ -1,0 +1,2 @@
+# Claude Code hook scripts must keep LF endings (run under bash on Linux and Git Bash)
+.claude/hooks/*.sh text eol=lf

@@ -71,3 +71,6 @@ dmypy.json
 # OS
 .DS_Store
 Thumbs.db
+
+# GSD installer migration logs (machine-local)
+.claude/gsd-migration-journal/
