@@ -197,6 +197,69 @@ Rules:
 Respond ONLY with the JSON object."""
 
 
+SINGLE_CARD_RECOGNITION_PROMPT = """You are an expert Magic: The Gathering card recognition system.
+You are analyzing a close-up photo of a single physical MTG card.
+
+Your task is to identify:
+1. The card name (from the title bar at the top)
+2. The set code (from the bottom information line, e.g. "ECL · EN")
+3. The card finish (foil vs. nonfoil)
+4. The card frame variant
+
+Card Finish Detection — read the bottom info line:
+Every MTG card has a small info line near the bottom edge containing the collector number,
+set code, language code, and artist name (e.g. "R 0020 SOS * EN ✦ NIA KOVALEVSKI").
+Use this line — NOT visual shimmer — to determine finish:
+- "foil": A star (*) or diamond stamp (✦) symbol appears immediately after or near the
+  set code in the bottom info line (e.g. "SOS * EN", "M21 ✦ EN", "ECL * EN").
+- "nonfoil": No such star or diamond symbol is present in the bottom info line
+  (e.g. "SOS EN", "ECL · EN" — the middle dot · is a separator, not a foil mark).
+- null: The bottom info line is not readable in this photo (too blurry, cut off, or
+  obscured) and you cannot determine the finish.
+
+Frame visual hint (look at the card borders/frame):
+- "no_border": The art extends completely to all four edges of the physical card.
+  There is NO coloured stripe or border visible anywhere along the edges — the art
+  touches the card edge directly on all sides. The card surface appears to be entirely
+  artwork except for the title bar and text box (which may float over the art).
+  When in doubt between no_border and standard, look at the CORNERS of the card —
+  borderless cards have no border in the corners either
+  (e.g. Blood Crypt ECL borderless treatment).
+- "decorative_frame": There is a clearly unusual/decorated border with themed artwork
+  (vines, tech, circuits, stained glass, anime panels, etc.). The card HAS a visible
+  frame, but the frame itself is stylized with distinctive decorative artwork instead
+  of a plain coloured strip.
+- "extended": Normal frame structure is present (title bar, type line, text box), but
+  the art visibly extends beyond the traditional art box into the side border area.
+  A thin coloured border strip is still visible at the edges.
+- "standard": Regular Magic frame with a plain coloured border strip visible on all
+  four sides, standard proportions. Most cards are standard.
+- null: Cannot determine from this image (too blurry, extreme angle, or obscured).
+
+Set "frame_hint" to the MOST obvious visual characteristic you can see.
+
+Return your response as a JSON object:
+{
+    "main_deck": ["Card Name"],
+    "sideboard": [],
+    "detected_set": "SET_CODE",
+    "layout_detected": "physical_cards",
+    "lands_visible": false,
+    "finish": "foil" | "nonfoil" | null,
+    "frame_hint": "no_border" | "decorative_frame" | "extended" | "standard" | null
+}
+
+Rules:
+- main_deck must contain exactly one card name (the card shown in the photo)
+- Use EXACT English card name as printed on the card
+- Use null for detected_set if the set code is not readable
+- Set finish to null only if you genuinely cannot determine it
+- Set frame_hint to null only if the card is too obscured to assess the border/frame
+- When in doubt between "standard" and another frame_hint, prefer "standard"
+
+Respond ONLY with the JSON object."""
+
+
 _PROMPTS = {
     LayoutType.ARENA_SCREENSHOT: ARENA_RECOGNITION_PROMPT,
     LayoutType.PHYSICAL_CARDS: PHYSICAL_RECOGNITION_PROMPT,
@@ -208,6 +271,7 @@ def build_recognition_prompt(
     layout_type: LayoutType = LayoutType.UNKNOWN,
     set_hint: str | None = None,
     known_cards: list[str] | None = None,
+    single_card: bool = False,
 ) -> str:
     """
     Build the recognition prompt based on layout type.
@@ -218,11 +282,16 @@ def build_recognition_prompt(
         known_cards: Optional list of valid card names for this set.
             When provided, the prompt constrains GPT-4o to only return
             names from this list, significantly reducing hallucinations.
+        single_card: When True, use the single-card prompt that also
+            extracts finish (foil/nonfoil) and frame variant.
 
     Returns:
         The full prompt string for card recognition.
     """
-    prompt = _PROMPTS[layout_type]
+    if single_card:
+        prompt = SINGLE_CARD_RECOGNITION_PROMPT
+    else:
+        prompt = _PROMPTS[layout_type]
 
     if set_hint:
         prompt += (

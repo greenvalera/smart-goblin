@@ -6,7 +6,9 @@ Focus on the two pieces of logic that determine the final letter grade:
 - ``SeventeenLandsParser._apply_grades``: assigning grades from a global pool.
 """
 
+from datetime import date
 from decimal import Decimal
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -14,8 +16,161 @@ from src.parsers.base import RatingData
 from src.parsers.seventeen_lands import (
     MIN_CARDS_FOR_STATS,
     SeventeenLandsParser,
+    is_under_embargo,
     z_score_to_grade,
 )
+
+
+class TestRequestUrl:
+    """
+    Pin the endpoint and parameter names.
+
+    17lands moved this feed from /card_ratings/data to /api/card_data and
+    renamed ``format`` to ``event_type``. The legacy path still answers 200
+    with every statistic nulled out rather than failing, so a regression
+    here is invisible at runtime — it just silently stops carrying data.
+    """
+
+    async def test_calls_api_card_data_with_event_type(self):
+        parser = SeventeenLandsParser()
+        parser._request = AsyncMock(return_value={"data": []})
+
+        await parser.fetch_ratings("SOS", format_name="PremierDraft")
+
+        url = parser._request.await_args.args[0]
+        assert "/api/card_data?" in url
+        assert "expansion=SOS" in url
+        assert "event_type=PremierDraft" in url
+        assert "card_ratings/data" not in url
+        assert "format=" not in url
+
+    async def test_start_date_is_forwarded(self):
+        parser = SeventeenLandsParser()
+        parser._request = AsyncMock(return_value={"data": []})
+
+        await parser.fetch_ratings("SOS", start_date=date(2026, 1, 31))
+
+        assert "start_date=2026-01-31" in parser._request.await_args.args[0]
+
+    async def test_unwraps_the_data_envelope(self):
+        """The endpoint wraps rows in {copyright, notes, data}."""
+        parser = SeventeenLandsParser()
+        parser._request = AsyncMock(
+            return_value={
+                "copyright": "(c) 2026 17Lands LLC",
+                "notes": "…",
+                "data": [
+                    {"name": "Enveloped Card", "ever_drawn_win_rate": 0.55,
+                     "game_count": 1000},
+                ],
+            }
+        )
+
+        ratings = await parser.fetch_ratings("SOS")
+
+        assert [r.card_name for r in ratings] == ["Enveloped Card"]
+
+
+class TestEmbargo:
+    """
+    17lands asks third-party tools to hold a new set's data for 12 days
+    after its Arena release. See https://www.17lands.com/usage_guidelines
+    """
+
+    def test_day_of_release_is_embargoed(self):
+        assert is_under_embargo(date(2026, 8, 1), today=date(2026, 8, 1)) is True
+
+    def test_day_eleven_is_still_embargoed(self):
+        assert is_under_embargo(date(2026, 8, 1), today=date(2026, 8, 12)) is True
+
+    def test_day_twelve_is_clear(self):
+        assert is_under_embargo(date(2026, 8, 1), today=date(2026, 8, 13)) is False
+
+    def test_long_released_set_is_clear(self):
+        assert is_under_embargo(date(2024, 2, 9), today=date(2026, 8, 14)) is False
+
+    def test_unknown_release_date_is_not_embargoed(self):
+        """
+        Sets already in the DB may predate release-date tracking. Treating
+        an unknown date as embargoed would silently drop their ratings.
+        """
+        assert is_under_embargo(None, today=date(2026, 8, 14)) is False
+
+
+class TestParseRating:
+    """
+    Pin the 17lands JSON field mapping.
+
+    ``_parse_rating`` is the only place the upstream response shape is
+    read. It had no coverage, so when 17lands' feed stopped carrying
+    statistics every test still passed and the breakage surfaced only as
+    ungraded cards in production. These records use the field names and
+    types the live endpoint returns.
+    """
+
+    def test_maps_a_populated_record(self):
+        parser = SeventeenLandsParser()
+        rating = parser._parse_rating(
+            {
+                "name": "Masterful Flourish",
+                "color": "W",
+                "rarity": "common",
+                "ever_drawn_win_rate": 0.564321,
+                "ever_drawn_game_count": 4200,
+                "game_count": 4200,
+                "url": "https://cards.scryfall.io/large/front/7/a/7a451985.jpg",
+            },
+            "PremierDraft",
+        )
+
+        assert rating.card_name == "Masterful Flourish"
+        # Stored as a percentage, not the raw 0..1 fraction.
+        assert rating.win_rate == Decimal("56.4321")
+        assert rating.games_played == 4200
+        assert rating.low_confidence is False
+        assert rating.format == "PremierDraft"
+        # Grades are assigned later, by _apply_grades over the full sample.
+        assert rating.grade is None
+        assert rating.rating is None
+
+    def test_maps_a_statless_record(self):
+        """
+        The shape 17lands serves when it has no aggregates for a card:
+        the entry exists, every statistic is null or zero.
+        """
+        parser = SeventeenLandsParser()
+        rating = parser._parse_rating(
+            {
+                "name": "The Dawning Archaic",
+                "color": "",
+                "rarity": "mythic",
+                "ever_drawn_win_rate": None,
+                "ever_drawn_game_count": 0,
+                "game_count": 0,
+                "url": "https://cards.scryfall.io/large/front/7/a/7a451985.jpg",
+            },
+            "PremierDraft",
+        )
+
+        assert rating.card_name == "The Dawning Archaic"
+        assert rating.win_rate is None
+        assert rating.games_played == 0
+        assert rating.low_confidence is True
+
+    def test_falls_back_to_ever_drawn_game_count(self):
+        """``game_count`` absent — the parser falls back to the ever-drawn count."""
+        parser = SeventeenLandsParser()
+        rating = parser._parse_rating(
+            {
+                "name": "Fallback Card",
+                "ever_drawn_win_rate": 0.51,
+                "ever_drawn_game_count": 900,
+            },
+            "PremierDraft",
+        )
+
+        assert rating.games_played == 900
+        assert rating.low_confidence is False
 
 
 class TestZScoreToGrade:

@@ -858,6 +858,9 @@ class TestRecognitionResult:
         assert result.sideboard == []
         assert result.detected_set is None
         assert result.layout_detected == LayoutType.UNKNOWN
+        assert result.finish is None
+        assert result.frame_hint is None
+        assert result.variant is None
 
     def test_custom_values(self):
         """RecognitionResult should accept custom values."""
@@ -871,3 +874,215 @@ class TestRecognitionResult:
         assert result.sideboard == ["Card C"]
         assert result.detected_set == "MKM"
         assert result.layout_detected == LayoutType.ARENA_SCREENSHOT
+
+
+# =============================================================================
+# Single-card recognition: finish and frame_hint
+# =============================================================================
+
+
+class TestSingleCardRecognition:
+    """Tests for finish and frame_hint extraction in single-card mode."""
+
+    @pytest.mark.asyncio
+    async def test_foil_finish_extracted(self, mock_llm_client, sample_image_bytes):
+        """finish='foil' from LLM response is kept."""
+        mock_llm_client.call_vision.return_value = {
+            "main_deck": ["Blood Crypt"],
+            "sideboard": [],
+            "detected_set": "ECL",
+            "layout_detected": "physical_cards",
+            "finish": "foil",
+            "frame_hint": "no_border",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(
+            sample_image_bytes, single_card=True
+        )
+        assert result.finish == "foil"
+
+    @pytest.mark.asyncio
+    async def test_nonfoil_finish_extracted(self, mock_llm_client, sample_image_bytes):
+        """finish='nonfoil' from LLM response is kept."""
+        mock_llm_client.call_vision.return_value = {
+            "main_deck": ["Lightning Bolt"],
+            "sideboard": [],
+            "detected_set": "M11",
+            "layout_detected": "physical_cards",
+            "finish": "nonfoil",
+            "frame_hint": "standard",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(
+            sample_image_bytes, single_card=True
+        )
+        assert result.finish == "nonfoil"
+
+    @pytest.mark.asyncio
+    async def test_invalid_finish_coerced_to_none(
+        self, mock_llm_client, sample_image_bytes
+    ):
+        """finish with an unrecognized value is coerced to None."""
+        mock_llm_client.call_vision.return_value = {
+            "main_deck": ["Some Card"],
+            "sideboard": [],
+            "detected_set": "TST",
+            "layout_detected": "physical_cards",
+            "finish": "shiny",  # not a valid value
+            "frame_hint": "standard",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(
+            sample_image_bytes, single_card=True
+        )
+        assert result.finish is None
+
+    @pytest.mark.asyncio
+    async def test_frame_hint_no_border_extracted(
+        self, mock_llm_client, sample_image_bytes
+    ):
+        """frame_hint='no_border' is kept."""
+        mock_llm_client.call_vision.return_value = {
+            "main_deck": ["Blood Crypt"],
+            "sideboard": [],
+            "detected_set": "ECL",
+            "layout_detected": "physical_cards",
+            "finish": "nonfoil",
+            "frame_hint": "no_border",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(
+            sample_image_bytes, single_card=True
+        )
+        assert result.frame_hint == "no_border"
+
+    @pytest.mark.asyncio
+    async def test_frame_hint_decorative_frame_extracted(
+        self, mock_llm_client, sample_image_bytes
+    ):
+        """frame_hint='decorative_frame' is kept."""
+        mock_llm_client.call_vision.return_value = {
+            "main_deck": ["Wrenn and Six"],
+            "sideboard": [],
+            "detected_set": "MH3",
+            "layout_detected": "physical_cards",
+            "finish": "nonfoil",
+            "frame_hint": "decorative_frame",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(
+            sample_image_bytes, single_card=True
+        )
+        assert result.frame_hint == "decorative_frame"
+
+    @pytest.mark.asyncio
+    async def test_frame_hint_extended_extracted(
+        self, mock_llm_client, sample_image_bytes
+    ):
+        """frame_hint='extended' is kept."""
+        mock_llm_client.call_vision.return_value = {
+            "main_deck": ["Snapcaster Mage"],
+            "sideboard": [],
+            "detected_set": "MMA",
+            "layout_detected": "physical_cards",
+            "finish": "nonfoil",
+            "frame_hint": "extended",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(
+            sample_image_bytes, single_card=True
+        )
+        assert result.frame_hint == "extended"
+
+    @pytest.mark.asyncio
+    async def test_frame_hint_standard_extracted(
+        self, mock_llm_client, sample_image_bytes
+    ):
+        """frame_hint='standard' is kept."""
+        mock_llm_client.call_vision.return_value = {
+            "main_deck": ["Lightning Bolt"],
+            "sideboard": [],
+            "detected_set": "M11",
+            "layout_detected": "physical_cards",
+            "finish": "nonfoil",
+            "frame_hint": "standard",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(
+            sample_image_bytes, single_card=True
+        )
+        assert result.frame_hint == "standard"
+
+    @pytest.mark.asyncio
+    async def test_invalid_frame_hint_coerced_to_none(
+        self, mock_llm_client, sample_image_bytes
+    ):
+        """Unknown frame_hint value is coerced to None."""
+        mock_llm_client.call_vision.return_value = {
+            "main_deck": ["Some Card"],
+            "sideboard": [],
+            "detected_set": "TST",
+            "layout_detected": "physical_cards",
+            "finish": "nonfoil",
+            "frame_hint": "borderless",  # old field value — no longer valid
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(
+            sample_image_bytes, single_card=True
+        )
+        assert result.frame_hint is None
+
+    @pytest.mark.asyncio
+    async def test_variant_always_none_from_llm(
+        self, mock_llm_client, sample_image_bytes
+    ):
+        """variant is never populated from the LLM — always None after _build_result."""
+        mock_llm_client.call_vision.return_value = {
+            "main_deck": ["Blood Crypt"],
+            "sideboard": [],
+            "detected_set": "ECL",
+            "layout_detected": "physical_cards",
+            "finish": "nonfoil",
+            "frame_hint": "no_border",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(
+            sample_image_bytes, single_card=True
+        )
+        assert result.variant is None
+
+    @pytest.mark.asyncio
+    async def test_frame_hint_case_normalized(
+        self, mock_llm_client, sample_image_bytes
+    ):
+        """frame_hint value is lowercased before validation."""
+        mock_llm_client.call_vision.return_value = {
+            "main_deck": ["Some Card"],
+            "sideboard": [],
+            "detected_set": "TST",
+            "layout_detected": "physical_cards",
+            "finish": "NONFOIL",
+            "frame_hint": "NO_BORDER",
+        }
+        recognizer = CardRecognizer(llm_client=mock_llm_client)
+        result = await recognizer.recognize_cards(
+            sample_image_bytes, single_card=True
+        )
+        assert result.finish == "nonfoil"
+        assert result.frame_hint == "no_border"
+
+    def test_single_card_prompt_contains_frame_hint_field(self):
+        """The single-card prompt JSON schema must use 'frame_hint', not 'variant'."""
+        from src.vision.prompts import SINGLE_CARD_RECOGNITION_PROMPT
+
+        assert "frame_hint" in SINGLE_CARD_RECOGNITION_PROMPT
+        # The old 'variant' field must no longer be in the JSON schema section
+        # (it may appear in comments but not as a JSON key)
+        assert '"variant"' not in SINGLE_CARD_RECOGNITION_PROMPT
+
+    def test_single_card_prompt_lists_valid_frame_hints(self):
+        """The single-card prompt must enumerate all valid frame_hint values."""
+        from src.vision.prompts import SINGLE_CARD_RECOGNITION_PROMPT
+
+        for hint in ("no_border", "decorative_frame", "extended", "standard"):
+            assert hint in SINGLE_CARD_RECOGNITION_PROMPT

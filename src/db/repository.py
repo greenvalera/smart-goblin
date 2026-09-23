@@ -85,26 +85,43 @@ class CardRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_by_name(self, name: str, set_code: str) -> Optional[Card]:
+    async def get_by_name(self, name: str, set_code: Optional[str]) -> Optional[Card]:
         """
-        Get card by name and set code.
+        Get card by name and optional set code.
 
-        Searches the requested set first; if not found, falls back to any
-        bonus-sheet child sets (where ``sets.parent_set_code == set_code``).
-        Lookup by a child code does NOT include the parent.
+        When ``set_code`` is provided:
+          Searches the requested set first; if not found, falls back to any
+          bonus-sheet child sets (where ``sets.parent_set_code == set_code``).
+          Lookup by a child code does NOT include the parent.
+
+        When ``set_code`` is ``None``:
+          Searches across ALL sets in the database (global fallback).
 
         Also resolves front-face names of split / DFC / adventure / prepare
         cards: Scryfall stores those under ``"Front // Back"``, but vision
         and users typically pass only the front face name.
         """
-        set_code_upper = set_code.upper()
         name_match = or_(
             Card.name == name,
             Card.name.ilike(f"{name} // %"),
         )
+        name_priority = case((Card.name == name, 0), else_=1)
+
+        if set_code is None:
+            # Global search — no set filter
+            result = await self.session.execute(
+                select(Card)
+                .join(Set)
+                .where(name_match)
+                .options(selectinload(Card.ratings), joinedload(Card.set))
+                .order_by(name_priority)
+                .limit(1)
+            )
+            return result.scalar_one_or_none()
+
+        set_code_upper = set_code.upper()
         # Prefer exact-name + exact-set, then exact-name + child-set,
         # then split-form + exact-set, then split-form + child-set.
-        name_priority = case((Card.name == name, 0), else_=1)
         set_priority = case((Set.code == set_code_upper, 0), else_=1)
         result = await self.session.execute(
             select(Card)
@@ -336,21 +353,31 @@ class CardRepository:
         """
         Insert or update card ratings (upsert).
 
+        A rating carrying no statistics (no ``win_rate`` and no ``rating``)
+        never overwrites a stored row. 17lands legitimately returns empty
+        stats for cards with too little play, and it returned empty stats
+        for *every* card when its public feed stopped serving aggregates —
+        blindly upserting those nulls wipes grades that were already
+        computed. Such rows are still inserted when the card has no rating
+        yet, so a placeholder exists once real data arrives.
+
         Args:
             ratings: List of rating data to upsert
 
         Returns:
-            Number of ratings processed.
+            Number of ratings whose statistics were written.
         """
         if not ratings:
             return 0
 
-        processed = 0
+        written = 0
         for r in ratings:
             # Find the card
             card = await self.get_by_name(r.card_name, r.set_code)
             if not card:
                 continue
+
+            has_stats = r.win_rate is not None or r.rating is not None
 
             # Upsert rating
             stmt = insert(CardRating).values(
@@ -362,19 +389,24 @@ class CardRepository:
                 format=r.format,
                 fetched_at=datetime.now(UTC),
             )
-            stmt = stmt.on_conflict_do_update(
-                constraint="uq_card_ratings_card_source_format",
-                set_={
-                    "rating": stmt.excluded.rating,
-                    "win_rate": stmt.excluded.win_rate,
-                    "games_played": stmt.excluded.games_played,
-                    "fetched_at": stmt.excluded.fetched_at,
-                },
-            )
+            if has_stats:
+                stmt = stmt.on_conflict_do_update(
+                    constraint="uq_card_ratings_card_source_format",
+                    set_={
+                        "rating": stmt.excluded.rating,
+                        "win_rate": stmt.excluded.win_rate,
+                        "games_played": stmt.excluded.games_played,
+                        "fetched_at": stmt.excluded.fetched_at,
+                    },
+                )
+                written += 1
+            else:
+                stmt = stmt.on_conflict_do_nothing(
+                    constraint="uq_card_ratings_card_source_format",
+                )
             await self.session.execute(stmt)
-            processed += 1
 
-        return processed
+        return written
 
 
 class UserRepository:

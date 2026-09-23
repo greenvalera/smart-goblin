@@ -61,8 +61,12 @@ def _card_to_card_info(card: Card) -> CardInfo:
         win_rate = best.win_rate
         games_played = best.games_played
 
+    # For DFC/split cards stored as "Front // Back", use only the front face so
+    # the name matches what the vision recognizer returns (front face only).
+    display_name = card.name.split(" // ")[0] if " // " in card.name else card.name
+
     return CardInfo(
-        name=card.name,
+        name=display_name,
         mana_cost=card.mana_cost,
         cmc=card.cmc,
         colors=list(card.colors) if card.colors else None,
@@ -203,11 +207,50 @@ async def _run_deck_pipeline(
     )
 
 
+def _format_single_card_header(
+    card_name: str,
+    set_code: str,
+    finish: Optional[str] = None,
+    variant: Optional[str] = None,
+) -> str:
+    """
+    Format the header line for a single-card response.
+
+    Examples:
+        🃏 *Blood Crypt ✨* (ECL) • Showcase
+        🃏 *Lightning Bolt* (M11)
+        🃏 *Liliana of the Veil ✨* (MOM) • Borderless
+
+    Args:
+        card_name: The card name to display.
+        set_code: The set code to show in parentheses.
+        finish: 'foil', 'nonfoil', or None.
+        variant: 'standard', 'showcase', 'extended_art', 'borderless', 'retro', or None.
+
+    Returns:
+        Formatted markdown header string.
+    """
+    foil_mark = " ✨" if finish == "foil" else ""
+    variant_display = {
+        "showcase": "Showcase",
+        "extended_art": "Extended Art",
+        "borderless": "Borderless",
+        "retro": "Retro",
+    }
+    variant_suffix = ""
+    if variant and variant != "standard":
+        variant_suffix = f" • {variant_display.get(variant, variant.replace('_', ' ').title())}"
+
+    return f"🃏 *{card_name}{foil_mark}* ({set_code}){variant_suffix}"
+
+
 async def _handle_single_card(
     processing_msg: Message,
     db_user: User,
     card_name: str,
     set_code: Optional[str],
+    finish: Optional[str] = None,
+    variant: Optional[str] = None,
 ) -> None:
     """
     Handle single-card photo: look up card in DB and show grade/win rate.
@@ -215,6 +258,14 @@ async def _handle_single_card(
     TC-P4-1.4: No active set → suggest /set <code>
     TC-P4-1.5: Card found → show grade, WR, CMC, type
     TC-P4-1.6: Card not found in DB → show not-found message with set code
+
+    Args:
+        processing_msg: The interim message to update.
+        db_user: The authenticated DB user.
+        card_name: Recognized card name.
+        set_code: Active set code (may be None).
+        finish: Detected card finish ('foil', 'nonfoil', or None).
+        variant: Detected frame variant ('standard', 'showcase', etc., or None).
     """
     if not set_code:
         await processing_msg.edit_text(
@@ -228,6 +279,13 @@ async def _handle_single_card(
     async with get_session() as session:
         card_repo = CardRepository(session)
         db_card = await card_repo.get_by_name(card_name, set_code)
+        found_via_fallback = False
+
+        if db_card is None:
+            # Fallback: search across ALL sets in the database
+            db_card = await card_repo.get_by_name(card_name, set_code=None)
+            if db_card is not None:
+                found_via_fallback = True
 
     if not db_card:
         await processing_msg.edit_text(
@@ -239,6 +297,13 @@ async def _handle_single_card(
 
     card_info = _card_to_card_info(db_card)
     grade = rating_to_grade(card_info.rating)
+
+    # When card was found in a different set, show which set it came from
+    actual_set_code = db_card.set.code if found_via_fallback else set_code
+
+    header = _format_single_card_header(
+        card_info.name, actual_set_code, finish=finish, variant=variant
+    )
 
     stat_parts = [f"Грейд: {grade}"]
     if card_info.win_rate is not None:
@@ -253,13 +318,13 @@ async def _handle_single_card(
         detail_parts.append(f"Тип: {card_info.type_line}")
 
     lines = [
-        f"🃏 *{card_info.name}*",
+        header,
         "📊 " + " | ".join(stat_parts),
     ]
     if detail_parts:
         lines.append("🎨 " + " | ".join(detail_parts))
 
-    keyboard = build_single_card_keyboard(card_info.name, set_code)
+    keyboard = build_single_card_keyboard(card_info.name, actual_set_code)
     await processing_msg.edit_text(
         "\n".join(lines), parse_mode="Markdown", reply_markup=keyboard
     )
@@ -447,9 +512,34 @@ async def handle_photo_without_command(
         sb_empty = len(recognition.sideboard) == 0
 
         if main_count == 1 and sb_empty:
-            # Single card photo — show grade and stats
+            # Single card photo — re-recognize with single_card=True to get
+            # finish (foil/nonfoil) and frame_hint alongside the card name.
+            single_recognition = await recognizer.recognize_cards(
+                image_bytes,
+                set_hint=resolved_set,
+                known_cards=known_cards,
+                single_card=True,
+            )
+            resolved_card_name = (
+                single_recognition.main_deck[0]
+                if single_recognition.main_deck
+                else recognition.main_deck[0]
+            )
+
+            # Cross-reference GPT-4o visual hint with Scryfall frame data
+            from src.parsers.scryfall_variants import get_card_variants, resolve_variant
+            scryfall_variants = await get_card_variants(
+                resolved_card_name, resolved_set or ""
+            )
+            variant = resolve_variant(single_recognition.frame_hint, scryfall_variants)
+
             await _handle_single_card(
-                processing_msg, db_user, recognition.main_deck[0], resolved_set
+                processing_msg,
+                db_user,
+                resolved_card_name,
+                resolved_set,
+                finish=single_recognition.finish,
+                variant=variant,
             )
 
         elif main_count >= 3:
@@ -624,6 +714,44 @@ async def handle_view_advice(callback: CallbackQuery, db_user: User) -> None:
         await callback.message.answer("Поради ще не згенеровано.")
 
 
+async def _fetch_card_price(
+    card_name: str,
+    set_code: str,
+    finish: Optional[str] = None,
+    variant: Optional[str] = None,
+) -> dict:
+    """
+    Fetch current price data for a card from Scryfall.
+
+    Args:
+        card_name: Exact card name to look up.
+        set_code: Set code (e.g., "ECL") for targeted lookup.
+        finish: Card finish ('foil', 'nonfoil', or None).
+            # TODO: use finish/variant for foil price lookup
+        variant: Card frame variant ('standard', 'showcase', etc., or None).
+            # TODO: use finish/variant for foil price lookup
+
+    Returns:
+        Raw Scryfall card data dict.
+
+    Raises:
+        httpx.HTTPStatusError: For non-404 HTTP errors.
+        httpx.TimeoutException: On request timeout.
+        httpx.RequestError: On network-level errors.
+    """
+    from src.config import get_settings
+    base_url = get_settings().parser.scryfall_api_base.rstrip("/")
+    async with httpx.AsyncClient(
+        timeout=10.0,
+        headers={"User-Agent": "SmartGoblin/1.0 (MTG Draft Analyzer Bot)"},
+    ) as client:
+        resp = await client.get(
+            f"{base_url}/cards/named",
+            params={"exact": card_name, "set": set_code.lower()},
+        )
+    return resp
+
+
 @router.callback_query(F.data.startswith("card_price:"))
 async def handle_card_price(callback: CallbackQuery) -> None:
     """
@@ -644,16 +772,7 @@ async def handle_card_price(callback: CallbackQuery) -> None:
     price_msg = await callback.message.answer("⏳ Отримую актуальну ціну...")
 
     try:
-        from src.config import get_settings
-        base_url = get_settings().parser.scryfall_api_base.rstrip("/")
-        async with httpx.AsyncClient(
-            timeout=10.0,
-            headers={"User-Agent": "SmartGoblin/1.0 (MTG Draft Analyzer Bot)"},
-        ) as client:
-            resp = await client.get(
-                f"{base_url}/cards/named",
-                params={"exact": card_name, "set": set_code.lower()},
-            )
+        resp = await _fetch_card_price(card_name, set_code)
 
         if resp.status_code == 404:
             await price_msg.edit_text("Карту не знайдено на Scryfall.")

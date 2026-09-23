@@ -269,6 +269,23 @@ class ScryfallParser(BaseParser):
             release_date=release_date,
         )
 
+    async def fetch_card_by_id(self, scryfall_id: UUID) -> Optional[CardData]:
+        """
+        Fetch a single card by Scryfall UUID.
+
+        Args:
+            scryfall_id: Scryfall card UUID.
+
+        Returns:
+            CardData object or None if not found.
+        """
+        url = f"{self.base_url}/cards/{scryfall_id}"
+        try:
+            data = await self._request(url)
+            return self._parse_card(data)
+        except NotFoundError:
+            return None
+
     async def fetch_card_by_name(
         self, card_name: str, set_code: Optional[str] = None
     ) -> Optional[CardData]:
