@@ -10,6 +10,8 @@ FSM flow:
 """
 
 import logging
+import re
+from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Optional
 
@@ -30,6 +32,7 @@ from src.db.session import get_session
 from src.llm.client import get_llm_client
 from src.llm.exceptions import LLMError
 from src.llm.prompts import DRAFT_CHAT_SYSTEM_PROMPT
+from src.parsers.set_importer import get_import_lock, import_set
 from src.reports.models import DeckReport
 from src.reports.telegram import TelegramRenderer
 from src.vision.card_matcher import fuzzy_match_cards
@@ -91,6 +94,85 @@ async def _fetch_known_cards(set_code: str) -> list[str]:
     async with get_session() as session:
         names = await CardRepository(session).get_card_names_by_set(set_code)
         return names or []
+
+
+_SET_CODE_RE = re.compile(r"^[A-Za-z0-9]{2,6}$")
+
+
+@dataclass
+class _SetStatus:
+    """Availability of a set's data in the DB (after optional auto-import)."""
+
+    known_cards: list[str] = field(default_factory=list)
+    has_ratings: bool = False
+    available: bool = False  # set exists in DB with cards
+    imported: bool = False  # set was auto-imported during this request
+
+
+async def _ensure_set_data(set_code: str, processing_msg: Message) -> _SetStatus:
+    """
+    Make sure a set's cards and ratings are in the DB, importing it if missing.
+
+    If the set has no cards in the DB, notifies the user via processing_msg and
+    runs the standard set import (Scryfall cards + 17lands ratings).
+    """
+    if not _SET_CODE_RE.match(set_code):
+        logger.warning("Refusing to import set with invalid code %r", set_code)
+        return _SetStatus()
+
+    imported = False
+    known = await _fetch_known_cards(set_code)
+    if not known:
+        async with get_import_lock(set_code):
+            # Another request may have imported the set while we waited.
+            known = await _fetch_known_cards(set_code)
+            if not known:
+                await processing_msg.edit_text(
+                    f"🔄 Сету *{set_code.upper()}* ще немає в базі. "
+                    "Оновлюю дані сету (карти та рейтинги 17lands), "
+                    "це може зайняти до хвилини...",
+                    parse_mode="Markdown",
+                )
+                try:
+                    result = await import_set(set_code)
+                except Exception:
+                    logger.exception("Auto-import of set %s failed", set_code)
+                    return _SetStatus()
+                if result is None:
+                    logger.warning("Auto-import: set %s not found on Scryfall", set_code)
+                    return _SetStatus()
+                logger.info(
+                    "Auto-imported set %s: %d cards, %d ratings",
+                    set_code, result.cards_count, result.ratings_count,
+                )
+                known = await _fetch_known_cards(set_code)
+                imported = True
+
+    if not known:
+        return _SetStatus()
+
+    async with get_session() as session:
+        has_ratings = await CardRepository(session).has_ratings_for_set(set_code)
+    return _SetStatus(
+        known_cards=known, has_ratings=has_ratings, available=True, imported=imported
+    )
+
+
+def _set_unavailable_text(set_code: str, status: _SetStatus) -> Optional[str]:
+    """Return the user-facing message if the set can't be analyzed, else None."""
+    code = set_code.upper()
+    if not status.available:
+        return (
+            f"⚠️ Не вдалося знайти або завантажити дані сету *{code}*.\n\n"
+            "Спробуйте пізніше або вкажіть сет вручну: /set КОД"
+        )
+    if not status.has_ratings:
+        return (
+            f"📭 Даних по сету *{code}* поки немає: 17lands ще не опублікував "
+            "рейтинги карт (сет занадто новий).\n\n"
+            "Рейтинги оновлюються щодня, спробуйте пізніше."
+        )
+    return None
 
 
 async def _recognize_and_match(
@@ -225,12 +307,18 @@ async def handle_draft_main_photo(
 
         known_cards: Optional[list[str]] = None
         if set_override:
-            names = await _fetch_known_cards(set_override)
-            if names:
-                known_cards = names
-                logger.info(
-                    "Loaded %d known cards for set %s", len(known_cards), set_override
-                )
+            set_status = await _ensure_set_data(set_override, processing_msg)
+            unavailable = _set_unavailable_text(set_override, set_status)
+            if unavailable:
+                await state.clear()
+                await processing_msg.edit_text(unavailable, parse_mode="Markdown")
+                return
+            known_cards = set_status.known_cards
+            logger.info(
+                "Loaded %d known cards for set %s", len(known_cards), set_override
+            )
+            if set_status.imported:
+                await processing_msg.edit_text("⏳ Розпізнаю main deck...")
 
         main_deck, _sb_from_img, detected_set = await _recognize_and_match(
             image_bytes, set_override, known_cards
@@ -242,6 +330,18 @@ async def handle_draft_main_photo(
             return
 
         resolved_set = set_override or detected_set
+
+        # Set detected from the photo (no override): auto-import it if missing,
+        # then re-match recognized names against the set's card list.
+        if detected_set and not set_override:
+            set_status = await _ensure_set_data(detected_set, processing_msg)
+            unavailable = _set_unavailable_text(detected_set, set_status)
+            if unavailable:
+                await state.clear()
+                await processing_msg.edit_text(unavailable, parse_mode="Markdown")
+                return
+            known_cards = set_status.known_cards
+            main_deck = fuzzy_match_cards(main_deck, known_cards).matched
 
         # Persist recognition result for the next step
         await state.update_data(

@@ -26,7 +26,7 @@ def _patch_session(session: AsyncSession):
     async def _fake_get_session():
         yield session
 
-    return patch("scripts.add_set.get_session", _fake_get_session)
+    return patch("src.parsers.set_importer.get_session", _fake_get_session)
 
 
 def _patch_scryfall(set_code: str, name: str = "Test Set"):
@@ -41,7 +41,7 @@ def _patch_scryfall(set_code: str, name: str = "Test Set"):
     )
     fake_parser.fetch_set_cards = AsyncMock(return_value=[])
     fake_parser.close = AsyncMock()
-    return patch("scripts.add_set.ScryfallParser", return_value=fake_parser)
+    return patch("src.parsers.set_importer.ScryfallParser", return_value=fake_parser)
 
 
 class TestAddSetParent:

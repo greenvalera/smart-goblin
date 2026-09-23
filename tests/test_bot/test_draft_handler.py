@@ -706,3 +706,130 @@ class TestBuildDeckContext:
     def test_empty_sideboard_shown(self):
         ctx = _build_deck_context(["Card A"], [], "TST", "")
         assert "порожній" in ctx or "0" in ctx
+
+
+# ---------------------------------------------------------------------------
+# Auto-import of a set detected on the photo but missing from the DB
+# ---------------------------------------------------------------------------
+
+
+def _patch_has_ratings(value: bool):
+    """Patch the DB lookup used by _ensure_set_data for has_ratings_for_set."""
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _fake_session():
+        yield MagicMock()
+
+    repo = MagicMock()
+    repo.has_ratings_for_set = AsyncMock(return_value=value)
+    return (
+        patch("src.bot.handlers.draft.get_session", _fake_session),
+        patch("src.bot.handlers.draft.CardRepository", return_value=repo),
+    )
+
+
+def _edit_texts(message: MagicMock) -> list[str]:
+    processing_msg = message.answer.return_value
+    return [
+        (c.args[0] if c.args else c.kwargs.get("text", ""))
+        for c in processing_msg.edit_text.call_args_list
+    ]
+
+
+class TestDraftSetAutoImport:
+    async def _run(
+        self,
+        *,
+        known_side_effect,
+        import_result,
+        has_ratings: bool,
+        active_set_code: str | None = None,
+    ):
+        from src.parsers.set_importer import SetImportResult
+
+        recognition = RecognitionResult(
+            main_deck=["Lightning Bolt", "Counterspel"],
+            sideboard=[],
+            detected_set="NEW",
+        )
+        if import_result == "ok":
+            import_result = SetImportResult(
+                set_code="NEW", set_name="New Set", created=True,
+                cards_count=2, ratings_count=2 if has_ratings else 0,
+            )
+
+        message = _make_message()
+        state = _make_state(data={})
+        db_user = _make_db_user(active_set_code=active_set_code)
+        session_patch, repo_patch = _patch_has_ratings(has_ratings)
+        mock_import = AsyncMock(return_value=import_result)
+
+        with patch("src.bot.handlers.draft.CardRecognizer") as MockRecognizer, \
+             patch("src.bot.handlers.draft._fetch_known_cards",
+                   AsyncMock(side_effect=known_side_effect)), \
+             patch("src.bot.handlers.draft.import_set", mock_import), \
+             session_patch, repo_patch:
+            mock_rec = AsyncMock()
+            mock_rec.recognize_cards = AsyncMock(return_value=recognition)
+            MockRecognizer.return_value = mock_rec
+            await handle_draft_main_photo(message, db_user, state)
+
+        return message, state, mock_import
+
+    async def test_missing_set_is_imported_then_report_flow_continues(self):
+        known = ["Lightning Bolt", "Counterspell"]
+        message, state, mock_import = await self._run(
+            known_side_effect=[[], [], known], import_result="ok", has_ratings=True,
+        )
+
+        mock_import.assert_awaited_once_with("NEW")
+        texts = _edit_texts(message)
+        assert any("Оновлюю дані сету" in t for t in texts)
+        assert "Розпізнано" in texts[-1]
+        state.set_state.assert_called_with(DraftState.waiting_sideboard)
+        data = state.update_data.call_args.kwargs
+        assert data["draft_set_code"] == "NEW"
+        assert data["draft_known_cards"] == known
+        # Recognized names re-matched against the freshly imported card list
+        assert data["draft_main_deck"] == ["Lightning Bolt", "Counterspell"]
+
+    async def test_imported_set_without_ratings_reports_no_data(self):
+        message, state, mock_import = await self._run(
+            known_side_effect=[[], [], ["Lightning Bolt"]], import_result="ok",
+            has_ratings=False,
+        )
+
+        mock_import.assert_awaited_once()
+        assert "поки немає" in _edit_texts(message)[-1]
+        state.clear.assert_called()
+        state.set_state.assert_not_called()
+
+    async def test_set_not_found_on_scryfall_reports_failure(self):
+        message, state, _ = await self._run(
+            known_side_effect=[[], []], import_result=None, has_ratings=False,
+        )
+
+        assert "Не вдалося знайти" in _edit_texts(message)[-1]
+        state.clear.assert_called()
+
+    async def test_existing_set_is_not_reimported(self):
+        message, state, mock_import = await self._run(
+            known_side_effect=[["Lightning Bolt", "Counterspell"]], import_result="ok",
+            has_ratings=True,
+        )
+
+        mock_import.assert_not_awaited()
+        assert not any("Оновлюю" in t for t in _edit_texts(message))
+        state.set_state.assert_called_with(DraftState.waiting_sideboard)
+
+    async def test_active_set_override_missing_is_imported_before_recognition(self):
+        known = ["Lightning Bolt", "Counterspell"]
+        message, state, mock_import = await self._run(
+            known_side_effect=[[], [], known], import_result="ok", has_ratings=True,
+            active_set_code="NEW",
+        )
+
+        mock_import.assert_awaited_once_with("NEW")
+        state.set_state.assert_called_with(DraftState.waiting_sideboard)
+        assert state.update_data.call_args.kwargs["draft_known_cards"] == known

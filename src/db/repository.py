@@ -192,6 +192,31 @@ class CardRepository:
                     expanded.append(front)
         return expanded
 
+    async def has_ratings_for_set(self, set_code: str) -> bool:
+        """
+        Check whether any card of a set (or its bonus-sheet children) has a rating.
+
+        Args:
+            set_code: Set code (e.g., "ECL").
+
+        Returns:
+            True if at least one rating row exists for the set.
+        """
+        set_code_upper = set_code.upper()
+        result = await self.session.execute(
+            select(CardRating.id)
+            .join(Card, CardRating.card_id == Card.id)
+            .join(Set)
+            .where(
+                or_(
+                    Set.code == set_code_upper,
+                    Set.parent_set_code == set_code_upper,
+                )
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def search_by_name(self, name_pattern: str, limit: int = 20) -> list[Card]:
         """
         Search cards by partial name match (case-insensitive).
