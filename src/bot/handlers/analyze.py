@@ -24,6 +24,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from src.bot.handlers.draft import DraftState
+from src.bot.set_data import ensure_set_data, set_unavailable_text, set_mismatch_text
 from src.bot.keyboards import (
     build_analysis_actions_keyboard,
     build_card_price_keyboard,
@@ -377,8 +378,15 @@ async def _run_analysis(
             await processing_msg.edit_text(format_error("no_cards"))
             return
 
-        # Build deck
+        # Import newly detected/selected sets before enrichment.
         set_code = set_override or recognition.detected_set
+        if set_code:
+            status = await ensure_set_data(set_code, processing_msg)
+            unavailable = set_unavailable_text(set_code, status)
+            if unavailable:
+                await processing_msg.edit_text(unavailable, parse_mode="Markdown")
+                return
+            known_cards = status.known_cards
         deck = Deck(
             main_deck=recognition.main_deck,
             sideboard=recognition.sideboard,
@@ -409,6 +417,11 @@ async def _run_analysis(
                         "Fuzzy matching: %d unmatched names",
                         total_unmatched,
                     )
+
+        mismatch = set_mismatch_text(deck.main_deck, known_cards or [], set_code) if known_cards else None
+        if mismatch:
+            await processing_msg.edit_text(mismatch, parse_mode="Markdown")
+            return
 
         await _run_deck_pipeline(
             message, processing_msg, db_user,
@@ -492,6 +505,16 @@ async def handle_photo_without_command(
 
         # Resolve final set code
         resolved_set = set_override or recognition.detected_set
+        if resolved_set and recognition.main_deck:
+            status = await ensure_set_data(resolved_set, processing_msg)
+            # A single card can still display metadata without ratings.
+            is_single = len(recognition.main_deck) == 1 and not recognition.sideboard
+            if not status.available or (not is_single and not status.has_ratings):
+                await processing_msg.edit_text(
+                    set_unavailable_text(resolved_set, status), parse_mode="Markdown"
+                )
+                return
+            known_cards = status.known_cards
 
         # Fuzzy-match recognized names against known cards
         if resolved_set:
@@ -544,6 +567,10 @@ async def handle_photo_without_command(
 
         elif main_count >= 3:
             # Deck photo — run full analysis pipeline
+            mismatch = set_mismatch_text(recognition.main_deck, known_cards or [], resolved_set) if known_cards else None
+            if mismatch:
+                await processing_msg.edit_text(mismatch, parse_mode="Markdown")
+                return
             await _run_deck_pipeline(
                 message, processing_msg, db_user,
                 recognition.main_deck, recognition.sideboard, resolved_set,

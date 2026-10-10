@@ -12,6 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from src.bot.messages import format_card_stats, format_error
+from src.bot.set_data import ensure_set_data, set_unavailable_text
 from src.db.models import User
 from src.db.repository import CardRepository, UserRepository
 from src.db.session import get_session
@@ -79,12 +80,23 @@ async def handle_set(
         await message.answer("Сет скинуто. Буде визначатися автоматично.")
         return
 
+    processing_msg = await message.answer("⏳ Перевіряю та завантажую дані сету...")
+    status = await ensure_set_data(set_code, processing_msg)
+    if not status.available:
+        await processing_msg.edit_text(
+            "Не вдалося завантажити сет. Попередній вибір збережено.\n"
+            "Перевірте код і повторіть: /set КОД"
+        )
+        return
+
     await state.update_data(set_override=set_code)
     async with get_session() as session:
         await UserRepository(session).update_active_set(message.from_user.id, set_code)
-    await message.answer(
+    rating_note = "" if status.has_ratings else "\n\n" + set_unavailable_text(set_code, status)
+    await processing_msg.edit_text(
         f"Сет встановлено: *{set_code}*\n"
-        "Цей сет буде використано для наступного аналізу.",
+        "Цей сет буде використано для наступних аналізів.\n"
+        "Автоматичне визначення: /set reset" + rating_note,
         parse_mode="Markdown",
     )
     logger.info(
