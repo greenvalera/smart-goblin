@@ -143,7 +143,7 @@ class TestTC_P4_5_1_and_5_5_IndicatorBeforeLLM:
 
         db_user = _make_db_user()
 
-        with patch("src.bot.handlers.analyze.recommend_lands", return_value=MagicMock()):
+        with patch("src.bot.handlers.analyze.recommend_deck_lands", return_value=MagicMock()):
             with patch("src.bot.handlers.analyze.get_llm_client"):
                 await handle_get_advice(callback, db_user, _make_state())
 
@@ -188,7 +188,7 @@ class TestTC_P4_5_1_and_5_5_IndicatorBeforeLLM:
 
         db_user = _make_db_user()
 
-        with patch("src.bot.handlers.analyze.recommend_lands", return_value=MagicMock()):
+        with patch("src.bot.handlers.analyze.recommend_deck_lands", return_value=MagicMock()):
             with patch("src.bot.handlers.analyze.get_llm_client"):
                 await handle_get_advice(callback, db_user, _make_state())
 
@@ -237,7 +237,7 @@ class TestTC_P4_5_2_IndicatorReplacedWithAdvice:
 
         db_user = _make_db_user()
 
-        with patch("src.bot.handlers.analyze.recommend_lands", return_value=MagicMock()):
+        with patch("src.bot.handlers.analyze.recommend_deck_lands", return_value=MagicMock()):
             with patch("src.bot.handlers.analyze.get_llm_client"):
                 await handle_get_advice(callback, db_user, _make_state())
 
@@ -278,7 +278,7 @@ class TestTC_P4_5_2_IndicatorReplacedWithAdvice:
 
         db_user = _make_db_user()
 
-        with patch("src.bot.handlers.analyze.recommend_lands", return_value=MagicMock()):
+        with patch("src.bot.handlers.analyze.recommend_deck_lands", return_value=MagicMock()):
             with patch("src.bot.handlers.analyze.get_llm_client"):
                 await handle_get_advice(callback, db_user, _make_state())
 
@@ -379,7 +379,7 @@ class TestTC_P4_5_4_LLMError:
 
         db_user = _make_db_user()
 
-        with patch("src.bot.handlers.analyze.recommend_lands", return_value=MagicMock()):
+        with patch("src.bot.handlers.analyze.recommend_deck_lands", return_value=MagicMock()):
             with patch("src.bot.handlers.analyze.get_llm_client"):
                 await handle_get_advice(callback, db_user, _make_state())
 
@@ -421,7 +421,7 @@ class TestTC_P4_5_4_LLMError:
 
         db_user = _make_db_user()
 
-        with patch("src.bot.handlers.analyze.recommend_lands", return_value=MagicMock()):
+        with patch("src.bot.handlers.analyze.recommend_deck_lands", return_value=MagicMock()):
             with patch("src.bot.handlers.analyze.get_llm_client"):
                 await handle_get_advice(callback, db_user, _make_state())
 

@@ -56,6 +56,26 @@ class TestCountColorPips:
 
 
 class TestRecommendLands:
+    def test_hybrid_and_optional_prepare_cost_do_not_force_a_splash(self):
+        cards = [
+            _FakeCard(mana_cost='{W}'), _FakeCard(mana_cost='{U}'),
+            _FakeCard(mana_cost='{R}{R}'),
+            _FakeCard(mana_cost='{2}{R/G} // {2}{R/G}'),
+            _FakeCard(mana_cost='{3}{W} // {G/W}'),
+        ]
+        rec = recommend_lands(cards)
+        assert set(rec.lands) == {'W', 'U', 'R'}
+        assert sum(rec.lands.values()) == 17
+
+    @pytest.mark.parametrize('total,nonbasic', [(0, 0), (1, 0), (2, 0), (17, 17), (17, 20)])
+    def test_small_or_all_nonbasic_mana_base_never_has_negative_counts(self, total, nonbasic):
+        rec = recommend_lands([_FakeCard(mana_cost='{W}{U}{B}{R}{G}')], total, nonbasic)
+        assert all(n >= 0 for n in rec.lands.values())
+        assert sum(rec.lands.values()) + rec.non_basic_count == total
+        if rec.alternative:
+            assert all(n >= 0 for n in rec.alternative.lands.values())
+            assert sum(rec.alternative.lands.values()) + rec.alternative.non_basic_count == total - 1
+
     def test_two_color_deck(self):
         """A W/U deck should get proportional land split."""
         cards = [

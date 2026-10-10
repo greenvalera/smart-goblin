@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Optional
 
 from src.core.deck import CardInfo, Deck, DeckAnalysis
-from src.core.lands import LandRecommendation
+from src.core.lands import LandRecommendation, BASIC_LANDS
 
 # Grade thresholds: (min_rating, grade_label).
 # Aligned with GRADE_TO_RATING in src/parsers/seventeen_lands.py
@@ -105,7 +105,7 @@ class DeckReport:
         seen: set[str] = set()
         result: list[CardSummary] = []
         for card in self.main_deck_cards + self.sideboard_cards:
-            if card.grade in UNRATED_GRADES and card.name not in seen:
+            if card.grade in UNRATED_GRADES and card.name not in seen and card.name not in BASIC_LANDS:
                 seen.add(card.name)
                 result.append(card)
         return result
