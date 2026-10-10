@@ -32,6 +32,7 @@ from src.llm.exceptions import LLMError
 from src.llm.prompts import DRAFT_CHAT_SYSTEM_PROMPT
 from src.bot.set_data import ensure_set_data as _ensure_set_data, set_unavailable_text as _set_unavailable_text
 from src.bot.set_data import set_mismatch_text
+from src.bot.set_data import resolve_missing_deck_set, NO_DECK_RATINGS_TEXT
 from src.reports.models import DeckReport
 from src.reports.telegram import TelegramRenderer
 from src.vision.card_matcher import fuzzy_match_cards
@@ -63,7 +64,7 @@ def _card_to_card_info(card: Card) -> CardInfo:
         best = card.ratings[0]
         rating, win_rate, games_played = best.rating, best.win_rate, best.games_played
     return CardInfo(
-        name=card.name,
+        name=card.name.split(" // ", 1)[0],
         mana_cost=card.mana_cost,
         cmc=card.cmc,
         colors=list(card.colors) if card.colors else None,
@@ -135,6 +136,9 @@ async def _build_and_send_report(
     Edits processing_msg with the final rendered report.
     """
     deck = Deck(main_deck=main_deck, sideboard=sideboard, set_code=set_code)
+    if not await resolve_missing_deck_set(deck, processing_msg):
+        return
+    set_code = deck.set_code
 
     card_infos: list[CardInfo] = []
     set_name: Optional[str] = None
@@ -152,6 +156,9 @@ async def _build_and_send_report(
 
     analyzer = DeckAnalyzer()
     analysis = analyzer.analyze(deck, card_infos)
+    if not analysis.cards_with_ratings:
+        await processing_msg.edit_text(NO_DECK_RATINGS_TEXT)
+        return
 
     main_deck_names = set(deck.main_deck)
     non_land_infos = [c for c in card_infos if not _is_basic_land(c.name) and c.name in main_deck_names]

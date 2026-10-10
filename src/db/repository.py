@@ -200,7 +200,7 @@ class CardRepository:
             set_code: Set code (e.g., "ECL").
 
         Returns:
-            True if at least one rating row exists for the set.
+            True if at least one numeric rating exists (not just a placeholder).
         """
         set_code_upper = set_code.upper()
         result = await self.session.execute(
@@ -208,6 +208,7 @@ class CardRepository:
             .join(Card, CardRating.card_id == Card.id)
             .join(Set)
             .where(
+                CardRating.rating.is_not(None),
                 or_(
                     Set.code == set_code_upper,
                     Set.parent_set_code == set_code_upper,
@@ -216,6 +217,24 @@ class CardRepository:
             .limit(1)
         )
         return result.scalar_one_or_none() is not None
+
+    async def get_set_matches(self, names: list[str]) -> dict[str, set[str]]:
+        """Exact name/front-face evidence by draft set, including bonus sheets."""
+        if not names:
+            return {}
+        full = func.lower(Card.name)
+        front = func.lower(func.split_part(Card.name, " // ", 1))
+        result = await self.session.execute(
+            select(Card.name, Set.code, Set.parent_set_code)
+            .join(Set)
+            .where(or_(full.in_(names), front.in_(names)))
+        )
+        matches: dict[str, set[str]] = {}
+        requested = set(names)
+        for name, code, parent in result:
+            aliases = {name.lower(), name.split(" // ", 1)[0].lower()}
+            matches.setdefault(parent or code, set()).update(aliases & requested)
+        return matches
 
     async def search_by_name(self, name_pattern: str, limit: int = 20) -> list[Card]:
         """

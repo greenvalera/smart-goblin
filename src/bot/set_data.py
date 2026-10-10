@@ -8,9 +8,12 @@ from typing import Optional
 
 from aiogram.types import Message
 from src.core.lands import BASIC_LANDS
+from src.core.deck import Deck
+from src.core.set_resolver import infer_set_from_cards
 from src.db.repository import CardRepository
 from src.db.session import get_session
 from src.parsers.set_importer import get_import_lock, import_set
+from src.vision.card_matcher import fuzzy_match_cards
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,35 @@ async def fetch_known_cards(set_code: str) -> list[str]:
 _SET_CODE_RE = re.compile(r"^[A-Za-z0-9]{2,6}$")
 _rating_attempts: dict[str, float] = {}
 _RATING_RETRY_SECONDS = 300
+
+SET_UNRESOLVED_TEXT = (
+    "⚠️ Карти розпізнано, але надійно визначити сет не вдалося.\n\n"
+    "Вкажіть його: /set КОД (наприклад, /set FRA), потім надішліть фото ще раз. "
+    "Без сету я не можу розрахувати оцінку та WR колоди."
+)
+NO_DECK_RATINGS_TEXT = (
+    "📭 Для карт цієї колоди немає оцінок у базі. "
+    "Оцінка колоди та WR поки недоступні. Перевірте сет через /set КОД."
+)
+
+
+async def resolve_missing_deck_set(deck: Deck, processing_msg: Message) -> bool:
+    """Prepare missing-set decks before either report pipeline can score/save them."""
+    if deck.set_code:
+        return True
+    code = await infer_set_from_cards(deck.main_deck)
+    if not code:
+        await processing_msg.edit_text(SET_UNRESOLVED_TEXT)
+        return False
+    status = await ensure_set_data(code, processing_msg)
+    unavailable = set_unavailable_text(code, status)
+    if unavailable:
+        await processing_msg.edit_text(unavailable, parse_mode="Markdown")
+        return False
+    deck.set_code = code
+    deck.main_deck = fuzzy_match_cards(deck.main_deck, status.known_cards).matched
+    deck.sideboard = fuzzy_match_cards(deck.sideboard, status.known_cards).matched
+    return True
 
 
 def set_mismatch_text(names: list[str], known: list[str], code: str) -> Optional[str]:

@@ -33,6 +33,14 @@ async def _seed(session: AsyncSession) -> None:
 
 
 class TestHasRatingsForSet:
+    async def test_placeholder_without_numeric_rating_is_not_ready(self, clean_session):
+        await _seed(clean_session)
+        repo = CardRepository(clean_session)
+        await repo.upsert_ratings([
+            RatingData(card_name="New Card", set_code="NEW", source="17lands", format="PremierDraft"),
+        ])
+        assert await repo.has_ratings_for_set("NEW") is False
+
     async def test_no_ratings_returns_false(self, clean_session: AsyncSession):
         await _seed(clean_session)
         assert await CardRepository(clean_session).has_ratings_for_set("NEW") is False
