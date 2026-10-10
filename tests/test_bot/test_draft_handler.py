@@ -724,8 +724,8 @@ def _patch_has_ratings(value: bool):
     repo = MagicMock()
     repo.has_ratings_for_set = AsyncMock(return_value=value)
     return (
-        patch("src.bot.handlers.draft.get_session", _fake_session),
-        patch("src.bot.handlers.draft.CardRepository", return_value=repo),
+        patch("src.bot.set_data.get_session", _fake_session),
+        patch("src.bot.set_data.CardRepository", return_value=repo),
     )
 
 
@@ -766,9 +766,9 @@ class TestDraftSetAutoImport:
         mock_import = AsyncMock(return_value=import_result)
 
         with patch("src.bot.handlers.draft.CardRecognizer") as MockRecognizer, \
-             patch("src.bot.handlers.draft._fetch_known_cards",
+             patch("src.bot.set_data.fetch_known_cards",
                    AsyncMock(side_effect=known_side_effect)), \
-             patch("src.bot.handlers.draft.import_set", mock_import), \
+             patch("src.bot.set_data.import_set", mock_import), \
              session_patch, repo_patch:
             mock_rec = AsyncMock()
             mock_rec.recognize_cards = AsyncMock(return_value=recognition)
