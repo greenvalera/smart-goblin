@@ -25,6 +25,7 @@ from aiogram.types import CallbackQuery, Message
 
 from src.bot.handlers.draft import DraftState
 from src.bot.set_data import ensure_set_data, set_unavailable_text, set_mismatch_text
+from src.bot.set_data import resolve_missing_deck_set, NO_DECK_RATINGS_TEXT
 from src.bot.keyboards import (
     build_analysis_actions_keyboard,
     build_card_price_keyboard,
@@ -148,6 +149,9 @@ async def _run_deck_pipeline(
         set_code: Resolved set code (may be None).
     """
     deck = Deck(main_deck=main_deck, sideboard=sideboard, set_code=set_code)
+    if not await resolve_missing_deck_set(deck, processing_msg):
+        return
+    set_code = deck.set_code
 
     # Enrich cards with DB ratings
     async with get_session() as session:
@@ -156,6 +160,9 @@ async def _run_deck_pipeline(
     # Analyze deck
     analyzer = DeckAnalyzer()
     analysis = analyzer.analyze(deck, card_infos)
+    if not analysis.cards_with_ratings:
+        await processing_msg.edit_text(NO_DECK_RATINGS_TEXT)
+        return
 
     # Calculate land recommendation
     total_lands = max(1, STANDARD_DECK_SIZE - len(deck.main_deck))

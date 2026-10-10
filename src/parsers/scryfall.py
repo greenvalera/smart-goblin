@@ -11,6 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
+from urllib.parse import urlencode
 
 import httpx
 
@@ -232,6 +233,26 @@ class ScryfallParser(BaseParser):
 
         logger.info(f"Fetched {len(cards)} cards for set {set_code}")
         return cards
+
+    async def fetch_card_sets(self, name: str) -> set[str]:
+        """All draft-set printings of an exact card name, never the default printing."""
+        params = urlencode({"q": '!"' + name.replace('"', '') + '"', "unique": "prints"})
+        url = f"{self.base_url}/cards/search?{params}"
+        codes: set[str] = set()
+        # Highly reprinted cards are weak evidence. Bound their pagination.
+        for _ in range(2):
+            try:
+                data = await self._request(url)
+            except NotFoundError:
+                return set()
+            for card in data.get("data", []):
+                if card.get("set_type") in {"expansion", "core", "masters", "draft_innovation", "alchemy"}:
+                    codes.add(card["set"].upper())
+            if not data.get("has_more"):
+                return codes
+            url = data["next_page"]
+        # Don't infer from an incomplete subset of a card's printings.
+        return set()
 
     async def fetch_set_info(self, set_code: str) -> Optional[SetData]:
         """

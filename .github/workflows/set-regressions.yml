@@ -1,0 +1,31 @@
+name: Set inference and report regressions
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://test:test@localhost/test
+      TELEGRAM_BOT_TOKEN: "12345:test"
+      OPENAI_API_KEY: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements-dev.txt psycopg2-binary
+      - name: Test actual report pipelines against disposable PostgreSQL
+        run: >-
+          python -m pytest tests/test_bot tests/test_core/test_set_resolver.py
+          tests/test_db/test_has_ratings_for_set.py
+          tests/integration/test_missing_set_report.py
+          tests/test_vision/test_card_matcher.py -q --tb=short
