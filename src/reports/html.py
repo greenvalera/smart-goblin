@@ -10,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
-from src.core.lands import COLOR_TO_LAND, LandRecommendation
+from src.core.lands import COLOR_TO_LAND, LandRecommendation, BASIC_LANDS
 from src.reports.models import UNRATED_GRADES, CardSummary, DeckReport
 
 # Scryfall card search URL template
@@ -231,13 +231,14 @@ class HTMLRenderer:
         )
         for card in cards:
             link = f'<a href="{_scryfall_link(card.name)}" target="_blank">{_esc(card.name)}</a>'
+            basic = card.name in BASIC_LANDS
             grade_cls = _grade_class(card.grade)
             rows.append(
                 f"<tr>"
                 f"<td>{link}</td>"
-                f"<td>{_rating_display(card.rating)}</td>"
-                f'<td><span class="grade {grade_cls}">{_esc(card.grade)}</span></td>'
-                f"<td>{_wr_display(card.win_rate)}</td>"
+                f"<td>{'—' if basic else _rating_display(card.rating)}</td>"
+                f'<td><span class="grade {grade_cls}">{"—" if basic else _esc(card.grade)}</span></td>'
+                f"<td>{'—' if basic else _wr_display(card.win_rate)}</td>"
                 f"<td>{_esc(card.mana_cost or '—')}</td>"
                 f"<td>{_esc(card.rarity or '—')}</td>"
                 f"</tr>"

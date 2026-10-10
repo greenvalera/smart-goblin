@@ -94,3 +94,39 @@ async def test_explicit_set_with_zero_rated_cards_cannot_save_report(clean_sessi
         await analyze._run_deck_pipeline(AsyncMock(), message, user, ['Missing Card'] * 40, [], 'HOB')
     assert list((await clean_session.scalars(select(Analysis))).all()) == []
     assert 'WR поки недоступні' in message.edit_text.call_args.args[0]
+
+
+@pytest.mark.parametrize('route', ['draft', 'analyze'])
+async def test_complete_deck_reports_same_mana_base_without_hybrid_splash(clean_session, monkeypatch, route):
+    @asynccontextmanager
+    async def use_session():
+        yield clean_session
+    for module in [draft, analyze]:
+        monkeypatch.setattr(module, 'get_session', use_session)
+    user, _ = await UserRepository(clean_session).get_or_create(12345)
+    await SetRepository(clean_session).get_or_create('FRA', 'Reality Fracture')
+    repo = CardRepository(clean_session)
+    cards = [
+        CardData(name='White', set_code='FRA', mana_cost='{W}', cmc=Decimal(1), colors=['W'], type_line='Creature'),
+        CardData(name='Blue', set_code='FRA', mana_cost='{U}', cmc=Decimal(1), colors=['U'], type_line='Creature'),
+        CardData(name='Red', set_code='FRA', mana_cost='{R}', cmc=Decimal(1), colors=['R'], type_line='Creature'),
+        CardData(name='Hybrid', set_code='FRA', mana_cost='{2}{R/G} // {2}{R/G}', cmc=Decimal(3), colors=['R','G'], type_line='Creature // Sorcery'),
+        CardData(name='Nonbasic', set_code='FRA', cmc=Decimal(0), colors=[], type_line='Land'),
+    ]
+    await repo.upsert_cards(cards)
+    await repo.upsert_ratings([
+        RatingData(card_name=c.name, set_code='FRA', source='17lands', rating=Decimal(2), win_rate=Decimal(56))
+        for c in cards[:4]
+    ])
+    main = ['White'] * 10 + ['Blue'] * 8 + ['Red'] * 3 + ['Hybrid'] * 2
+    main += ['Plains'] * 8 + ['Island'] * 5 + ['Mountain'] * 3 + ['Nonbasic']
+    message = AsyncMock()
+    if route == 'draft':
+        await draft._build_and_send_report(user, main, [], 'FRA', message)
+    else:
+        await analyze._run_deck_pipeline(AsyncMock(), message, user, main, [], 'FRA')
+    output = message.edit_text.call_args.args[0]
+    assert 'Землі (17)' in output and '1 небазових' in output
+    assert 'Forest' not in output and 'x-' not in output
+    assert 'Plains x8 — без даних' not in output
+    assert '0:17' not in output and 'C: 42%' not in output

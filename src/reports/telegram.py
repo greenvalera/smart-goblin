@@ -9,7 +9,7 @@ from collections import Counter
 from decimal import Decimal
 from typing import Optional
 
-from src.core.lands import COLOR_EMOJI, COLOR_TO_LAND, LandRecommendation
+from src.core.lands import COLOR_EMOJI, COLOR_TO_LAND, LandRecommendation, BASIC_LANDS
 from src.reports.models import UNRATED_GRADES, CardSummary, DeckReport
 
 # Grade sort order (best first)
@@ -100,7 +100,7 @@ class TelegramRenderer:
                 for c, p in analysis.color_distribution.items()
                 if p > 0
             )
-            lines.append(f"🎨 *Кольори:* {colors}")
+            lines.append(f"🎨 *Кольори заклять:* {colors}")
 
         return "\n".join(lines)
 
@@ -133,6 +133,10 @@ class TelegramRenderer:
         for card in sorted_cards:
             count = name_counts[card.name]
             count_str = f" x{count}" if count > 1 else ""
+
+            if card.name in BASIC_LANDS:
+                lines.append(f"🏔 {card.name}{count_str}")
+                continue
 
             if card.win_rate is not None:
                 wr_str = f"— {card.win_rate:.1f}%"

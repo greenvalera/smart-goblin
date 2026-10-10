@@ -23,7 +23,7 @@ from src.bot.keyboards import build_analysis_actions_keyboard, build_skip_sidebo
 from src.bot.messages import format_error
 from src.core.analyzer import DeckAnalyzer
 from src.core.deck import CardInfo, Deck
-from src.core.lands import BASIC_LANDS, recommend_lands
+from src.core.lands import BASIC_LANDS, recommend_deck_lands
 from src.db.models import Card, User
 from src.db.repository import AnalysisRepository, CardRepository, SetRepository
 from src.db.session import get_session
@@ -160,9 +160,7 @@ async def _build_and_send_report(
         await processing_msg.edit_text(NO_DECK_RATINGS_TEXT)
         return
 
-    main_deck_names = set(deck.main_deck)
-    non_land_infos = [c for c in card_infos if not _is_basic_land(c.name) and c.name in main_deck_names]
-    land_rec = recommend_lands(non_land_infos)
+    land_rec = recommend_deck_lands(deck, card_infos)
 
     async with get_session() as session:
         db_analysis = await AnalysisRepository(session).create(

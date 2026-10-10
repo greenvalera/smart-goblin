@@ -11,6 +11,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
 from src.core.deck import CardInfo, Deck, DeckAnalysis
+from src.core.lands import BASIC_LANDS, is_land
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +53,15 @@ class DeckAnalyzer:
         """
         card_map = {c.name: c for c in card_infos}
 
-        score = self._calculate_score(deck.main_deck, card_map)
-        win_rate = self._calculate_win_rate(deck.main_deck, card_map)
-        mana_curve = self._calculate_mana_curve(deck.main_deck, card_map)
-        color_dist = self._calculate_color_distribution(deck.main_deck, card_map)
+        rated_names = [name for name in deck.main_deck if name not in BASIC_LANDS]
+        spell_names = [
+            name for name in rated_names
+            if not (card_map.get(name) and is_land(card_map[name]))
+        ]
+        score = self._calculate_score(rated_names, card_map)
+        win_rate = self._calculate_win_rate(rated_names, card_map)
+        mana_curve = self._calculate_mana_curve(spell_names, card_map)
+        color_dist = self._calculate_color_distribution(spell_names, card_map)
 
         rated_count = sum(
             1 for name in deck.main_deck if card_map.get(name) and card_map[name].rating is not None
@@ -173,8 +179,8 @@ class DeckAnalyzer:
             if info and info.cmc is not None:
                 cmc_int = int(info.cmc)
             else:
-                # Unknown CMC, count as 0
-                cmc_int = 0
+                # Missing metadata must not look like a zero-cost spell.
+                continue
             curve[cmc_int] += 1
 
         return dict(sorted(curve.items()))
@@ -187,8 +193,8 @@ class DeckAnalyzer:
         """
         Calculate color distribution — percentage of cards per color.
 
-        Multi-colored cards count toward each of their colors.
-        Cards without color data are counted as "C" (colorless).
+        Multi-colored spells divide their contribution equally between colors.
+        Known colorless spells count as C; missing metadata is omitted.
 
         Args:
             card_names: List of card names in the deck.
@@ -200,17 +206,22 @@ class DeckAnalyzer:
         if not card_names:
             return {}
 
-        color_counts: dict[str, int] = defaultdict(int)
-        total_cards = len(card_names)
+        color_counts: dict[str, float] = defaultdict(float)
+        total_cards = 0
 
         for name in card_names:
             info = card_map.get(name)
+            if not info or info.colors is None:
+                continue
+            total_cards += 1
             if info and info.colors:
                 for color in info.colors:
-                    color_counts[color] += 1
+                    color_counts[color] += 1 / len(info.colors)
             else:
                 color_counts["C"] += 1
 
+        if not total_cards:
+            return {}
         # Convert counts to percentages
         result = {}
         for color, count in sorted(color_counts.items()):

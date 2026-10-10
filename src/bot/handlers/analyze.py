@@ -35,7 +35,7 @@ from src.bot.messages import format_error
 from src.core.advisor import DeckAdvisor
 from src.core.analyzer import DeckAnalyzer
 from src.core.deck import CardInfo, Deck
-from src.core.lands import BASIC_LANDS, STANDARD_DECK_SIZE, recommend_lands
+from src.core.lands import BASIC_LANDS, recommend_deck_lands
 from src.db.models import Card, User
 from src.db.repository import AnalysisRepository, CardRepository, SetRepository
 from src.db.session import get_session
@@ -164,19 +164,7 @@ async def _run_deck_pipeline(
         await processing_msg.edit_text(NO_DECK_RATINGS_TEXT)
         return
 
-    # Calculate land recommendation
-    total_lands = max(1, STANDARD_DECK_SIZE - len(deck.main_deck))
-    main_deck_names = set(deck.main_deck)
-    non_basic_lands = [c for c in card_infos if _is_nonbasic_land(c) and c.name in main_deck_names]
-    spell_infos = [
-        c for c in card_infos
-        if not _is_basic_land(c.name) and not _is_nonbasic_land(c) and c.name in main_deck_names
-    ]
-    land_rec = recommend_lands(
-        spell_infos,
-        total_lands=total_lands,
-        non_basic_land_count=len(non_basic_lands),
-    )
+    land_rec = recommend_deck_lands(deck, card_infos)
 
     # Save analysis to DB (no advice yet — on demand)
     async with get_session() as session:
@@ -662,19 +650,7 @@ async def handle_get_advice(callback: CallbackQuery, db_user: User, state: FSMCo
             analyzer = DeckAnalyzer()
             deck_analysis = analyzer.analyze(deck, card_infos)
 
-            # Recompute land recommendation for the advice prompt
-            adv_total_lands = max(1, STANDARD_DECK_SIZE - len(deck.main_deck))
-            main_deck_names = set(deck.main_deck)
-            non_basic_lands = [c for c in card_infos if _is_nonbasic_land(c) and c.name in main_deck_names]
-            spell_infos = [
-                c for c in card_infos
-                if not _is_basic_land(c.name) and not _is_nonbasic_land(c) and c.name in main_deck_names
-            ]
-            land_rec = recommend_lands(
-                spell_infos,
-                total_lands=adv_total_lands,
-                non_basic_land_count=len(non_basic_lands),
-            )
+            land_rec = recommend_deck_lands(deck, card_infos)
 
             # Generate advice via LLM
             advisor = DeckAdvisor(get_llm_client())
